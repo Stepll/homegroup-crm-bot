@@ -6,7 +6,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot.config import settings
-from bot.handlers import common, attendance, plans, group_events
+from bot.handlers import common, attendance, plans, group_events, stats
 from bot.schedulers.notifications import setup_scheduler
 
 logging.basicConfig(
@@ -24,6 +24,7 @@ async def main() -> None:
     dp.include_router(attendance.router)
     dp.include_router(plans.router)
     dp.include_router(group_events.router)
+    dp.include_router(stats.router)
 
     scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
     setup_scheduler(scheduler, bot)

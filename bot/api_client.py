@@ -52,6 +52,9 @@ class ApiClient:
                 return None
             raise
 
+    async def get_group_stats(self, group_id: int, period: str = "3m") -> dict:
+        return await self._get(f"/api/v1/groups/{group_id}/stats", params={"period": period})
+
     async def get_people(self) -> list:
         return await self._get("/api/v1/people")
 
