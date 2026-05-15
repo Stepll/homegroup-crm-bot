@@ -6,7 +6,7 @@ Telegram-бот для HomeGroup CRM. Сповіщення групи, пере�
 ## Tech Stack
 
 - **Python**: 3.12
-- **Bot framework**: aiogram 3.x (async, FSM для multi-step flows)
+- **Bot framework**: aiogram 3.x (async, inline keyboards)
 - **Scheduler**: APScheduler 3.x (cron-задачі для сповіщень)
 - **HTTP client**: httpx (async виклики до бекенд API)
 - **Config**: pydantic-settings (env vars + .env файл)
@@ -22,12 +22,13 @@ homegroup-crm-telegrambot/
     api_client.py          — ApiClient: HTTP клієнт до бекенду з авто-реавторизацією
     handlers/
       __init__.py
-      common.py            — /start, /help
-      attendance.py        — /attendance (FSM flow відмітки присутніх)
+      common.py            — /start, /help, /test_notify
+      attendance.py        — /attendance + auto-trigger (inline FSM flow)
       plans.py             — /plan (перегляд плану зустрічі)
+      group_events.py      — привітання при вступі бота в групу (chat ID)
     schedulers/
       __init__.py
-      notifications.py     — APScheduler jobs: notify_upcoming_events, notify_meeting_plan
+      notifications.py     — APScheduler jobs
   Dockerfile
   requirements.txt
   .env.example
@@ -41,44 +42,66 @@ homegroup-crm-telegrambot/
 і при отриманні 401. JWT токен зберігається в пам'яті.
 
 Доступні методи:
-- `get_groups()` → список усіх груп
-- `get_cabinet(group_id)` → `GroupCabinetResponse` (nextMeetingDate, members, stats, ...)
-- `get_plan(group_id, date)` → `HomeMeetingPlan` або `None` якщо не знайдено
-- `get_group_members(group_id)` → список членів групи
+- `get_groups()` → список усіх груп (з `telegramGroupId`)
+- `get_cabinet(group_id)` → `GroupCabinetResponse` (nextMeetingDate, lastMeetingDate, ...)
+- `get_plan(group_id, date)` → `HomeMeetingPlan` або `None`
+- `get_people()` → всі люди (для telegram lookup)
+- `get_admins()` → всі адміни (для telegram lookup)
+- `get_group_members(group_id)` → члени групи (Person + User)
+- `get_group_events(group_id)` → події групи
 - `record_attendance(group_id, meeting_date, entries)` → POST /api/v1/attendance
+- `save_attendance_meta(group_id, meeting_date, guest_count)` → POST /api/v1/attendance/meta
 
 ### Handlers
-Кожен хендлер — окремий `Router` з `bot/handlers/`.
-Підключаються в `main.py` через `dp.include_router(...)`.
+Роутери підключаються в `main.py`. Порядок: `common` → `attendance` → `plans` → `group_events`.
 
-Порядок важливий: `common` → `attendance` → `plans`.
+**common.py** — `/start`, `/help`, `/test_notify` (тригерить notify_upcoming_events вручну)
+
+**plans.py** — `/plan`:
+- Знаходить групу по `telegramGroupId == chat_id`
+- Бере `nextMeetingDate` з кабінету
+- Завантажує план і форматує: `build_telegram_map(people, admins)` резолвить відповідальних до `@handle`
+- Формат: `{time} - {title}: @responsible` + `   • info_line`, блоки без часу → футер після `------------------`
+
+**attendance.py** — `/attendance` + auto-trigger:
+- Стан зберігається в `sessions: dict[int, AttendanceSession]` (keyed by chat_id)
+- Inline flow: `att_start` → `att_toggle_{i}` → `att_done` → `att_guests_{n}` → summary
+- Команда `/attendance` → marks `lastMeetingDate`
+- Auto-trigger → marks today's date (якщо є зустріч)
+
+**group_events.py** — `my_chat_member` handler: при додаванні бота в групу надсилає chat ID для CRM.
 
 ### Scheduler (`bot/schedulers/notifications.py`)
-`setup_scheduler(scheduler, bot)` — реєструє APScheduler jobs.
-Всі job-и запускаються в timezone `Europe/Kyiv`.
+Всі job-и в timezone `Europe/Kyiv`.
 
-Заплановані задачі:
-- `notify_upcoming_events` — щодня о 09:00
-- `notify_meeting_plan` — щодня о 18:00 (відправляє план якщо завтра зустріч)
-
-### FSM для відмітки присутніх
-(TODO) Використовувати `aiogram.fsm.state.State` + `aiogram.fsm.state.StatesGroup`.
-Storage: `MemoryStorage` (достатньо, стейт не потрібен між рестартами).
+- `check_auto_attendance` — щохвилини: якщо `meetingTime + 60 хв` (±3 хв) → тригерить attendance flow
+  - Дедуплікація: `_triggered: set[(group_id, date)]` в пам'яті
+- `notify_upcoming_events` — щодня о 09:00: сповіщення про події групи
+  - 🎉 Сьогодні / 📅 Через 7 днів
+  - Рекурентні події (без року) — по місяць+день, одноразові (з роком) — точна дата
+- `notify_meeting_plan` — щодня о 18:00 (TODO: надсилати план напередодні зустрічі)
 
 ## Key Patterns
 
-### TelegramGroupId
-`HomeGroupEntity.TelegramGroupId` — id Telegram-групи куди бот надсилає сповіщення.
-Для кожної домашньої групи в CRM можна вказати свій Telegram chat id.
-Бот надсилає повідомлення через `bot.send_message(chat_id=group.telegramGroupId, ...)`.
+### Визначення групи по чату
+Бот знаходить групу через `telegramGroupId == str(message.chat.id)`.
+Поле `TelegramGroupId` заповнюється в CRM — бот надсилає його при вступі в групу.
+
+### Telegram lookup для відповідальних
+`build_telegram_map(people, admins)` → `dict[name.lower() → telegram_handle]`.
+`resolve_responsible(name, map)` → `@handle` якщо є telegram, інакше name як є.
+Якщо значення вже починається з `@` — використовується без змін.
+
+### Attendance session
+Не FSM — звичайний dict `sessions[chat_id]` з `AttendanceSession` dataclass.
+Стан: `init` → `members` → `guests`. При рестарті бота сесії втрачаються.
+"Повторна команда" перезаписує існуючу сесію.
 
 ### Автентифікація бота до API
-Бот використовує credentials суперадміна (`API_EMAIL`, `API_PASSWORD`).
-Токен кешується в `ApiClient._token`. При 401 → автоматично перелогінюється.
+Credentials суперадміна (`API_EMAIL`, `API_PASSWORD`). При 401 → автоматично перелогінюється.
 
 ### Polling mode
-Бот працює в polling режимі (не webhook). Простіше для деплою — не потрібен публічний endpoint.
-Достатньо для нашого use case.
+Не webhook. Простіше для деплою — не потрібен публічний endpoint.
 
 ## Environment Variables
 
@@ -89,67 +112,60 @@ API_EMAIL=admin@example.com           # credentials для логіну до API
 API_PASSWORD=your-password
 ```
 
-В `docker-compose.yml` бекенду змінна `BOT_TOKEN` береться з `.env`.
-`API_EMAIL` і `API_PASSWORD` прокидаються як `${SUPERADMIN_EMAIL}` / `${SUPERADMIN_PASSWORD}`.
+`BOT_TOKEN` також потрібен в `api` сервісі docker-compose (для `send-to-telegram` endpoint).
 
 ## Backend API Used
 
-Бот використовує наступні endpoint-и бекенду (`homegroup-crm-backend`):
-
 ```
-POST /api/v1/auth/login                     — отримати JWT
-GET  /api/v1/groups                         — список груп (з TelegramGroupId)
-GET  /api/v1/groups/:id/cabinet             — кабінет групи (nextMeetingDate, members)
-GET  /api/v1/groups/:id/plans/date/:date    — план зустрічі
-GET  /api/v1/groups/:id/members             — члени групи
-POST /api/v1/attendance                     — записати відвідуваність
+POST /api/v1/auth/login
+GET  /api/v1/groups
+GET  /api/v1/groups/:id/cabinet
+GET  /api/v1/groups/:id/plans/date/:date
+GET  /api/v1/groups/:id/members
+GET  /api/v1/groups/:id/events
+GET  /api/v1/people
+GET  /api/v1/admins
+POST /api/v1/attendance
+POST /api/v1/attendance/meta
 ```
-
-Повний API задокументований в `homegroup-crm-backend/CLAUDE.md`.
 
 ## Deployment
 
-Бот запускається як сервіс `bot` в `homegroup-crm-backend/docker-compose.yml`.
-Директорія `../homegroup-crm-telegrambot` використовується як build context.
-
 ```bash
-# Запустити з бекенду (запускає api + db + bot)
+# З бекенду — запускає api + db + bot
 cd homegroup-crm-backend
 docker compose up --build
 
-# Тільки бот (якщо api вже запущений)
-docker compose up --build bot
+# Тільки бот
+docker compose up --build bot -d
 
-# Логи бота
+# Логи
 docker compose logs -f bot
 ```
 
-Бот спілкується з API через внутрішню docker-compose мережу: `http://api:8080`.
-
-## Development Commands
+## Development
 
 ```bash
-# Локально (без docker, потрібен запущений API)
 cd homegroup-crm-telegrambot
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # заповнити BOT_TOKEN і API_*
+cp .env.example .env
 API_BASE_URL=http://localhost:8081 python -m bot.main
 ```
 
 ## What's Done
 
-- [x] Структура проекту (handlers, schedulers, api_client)
-- [x] ApiClient з авто-реавторизацією
+- [x] ApiClient з авто-реавторизацією (JWT, retry on 401)
 - [x] APScheduler з timezone Europe/Kyiv
 - [x] Docker деплой як сервіс в docker-compose бекенду
-- [x] /start, /help команди
+- [x] При вступі в групу — надсилає chat ID для CRM
+- [x] /plan — форматований план зустрічі з @telegram lookup, футером
+- [x] /attendance — inline FSM: toggle members → guest count → summary → save to CRM
+- [x] Auto-trigger attendance через 1 год після початку зустрічі (scheduler, ±3 хв вікно)
+- [x] notify_upcoming_events — о 09:00: події сьогодні + через 7 днів
+- [x] /test_notify — ручний тригер сповіщень про події
 
 ## TODO
 
-- [ ] /plan — отримати план наступної зустрічі і відформатувати для Telegram
-- [ ] /attendance — FSM flow: список членів → inline кнопки присутній/відсутній → submit
-- [ ] notify_upcoming_events — сповіщення про події з /cabinet за N днів наперед
-- [ ] notify_meeting_plan — відправка плану в Telegram-групу напередодні зустрічі
-- [ ] Визначення groupId по TelegramGroupId (яка група відповідає цьому чату)
+- [ ] notify_meeting_plan — автоматична відправка плану в групу напередодні зустрічі
+- [ ] Сповіщення лідеру якщо не відмічена присутність
