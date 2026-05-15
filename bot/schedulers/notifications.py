@@ -160,11 +160,12 @@ async def check_conflicts(bot: Bot, force: bool = False) -> None:
         try:
             if has_conflict and (not was_notified or force):
                 _conflict_notified.add(key)
+                names = ", ".join(c.get("title", "?") for c in conflicts)
                 await bot.send_message(
                     int(tg_id),
-                    "⚠️ Увага — домашка перетинається з іншими подіями в розкладі",
+                    f"⚠️ Накладка в розкладі — домашка перетинається з: {names}",
                 )
-            elif not has_conflict and (was_notified or force):
+            elif not has_conflict and was_notified:
                 _conflict_notified.discard(key)
                 await bot.send_message(
                     int(tg_id),
