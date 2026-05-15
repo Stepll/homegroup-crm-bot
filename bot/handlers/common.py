@@ -7,23 +7,27 @@ from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
 router = Router()
 
 
+START_TEXT = (
+    "Вітаю! Я бот HomeGroup CRM.\n\n"
+    "Команди:\n"
+    "/plan — план наступної зустрічі\n"
+    "/attendance — відмітити присутніх\n"
+    "/stats — статистика відвідуваності\n\n"
+    "Автоматичні сповіщення:\n"
+    "• Через годину після початку зустрічі — запит на відмітку присутніх\n"
+    "• Щодня о 09:00 — події групи сьогодні та через 7 днів\n"
+    "• Щодня о 09:00 — попередження якщо зустріч перетинається з іншими подіями"
+)
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
-    await message.answer(
-        "Вітаю! Я бот HomeGroup CRM.\n\n"
-        "Доступні команди:\n"
-        "/plan — план наступної зустрічі\n"
-        "/attendance — відмітити присутніх\n"
-    )
+    await message.answer(START_TEXT)
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(
-        "Команди:\n"
-        "/plan — переглянути план зустрічі групи\n"
-        "/attendance — відмітити присутніх на зустрічі\n"
-    )
+    await message.answer(START_TEXT)
 
 
 @router.message(Command("test_notify"))
