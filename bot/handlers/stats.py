@@ -85,7 +85,7 @@ async def _render(
 ) -> None:
     stats = await api_client.get_group_stats(group_id, period)
     text = _page1_text(stats, period) if page == 1 else _page2_text(stats, period)
-    await bot.edit_message_text(text, chat_id, message_id, reply_markup=_keyboard(group_id, period, page))
+    await bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=_keyboard(group_id, period, page))
 
 
 @router.message(Command("stats"))
