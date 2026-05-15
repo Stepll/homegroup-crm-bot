@@ -22,10 +22,11 @@ homegroup-crm-telegrambot/
     api_client.py          — ApiClient: HTTP клієнт до бекенду з авто-реавторизацією
     handlers/
       __init__.py
-      common.py            — /start, /help, /test_notify
+      common.py            — /start, /help, /test_notify, /test_conflict
       attendance.py        — /attendance + auto-trigger (inline FSM flow)
       plans.py             — /plan (перегляд плану зустрічі)
       group_events.py      — привітання при вступі бота в групу (chat ID)
+      stats.py             — /stats (статистика: 2 сторінки, перемикач місяців)
     schedulers/
       __init__.py
       notifications.py     — APScheduler jobs
@@ -49,13 +50,14 @@ homegroup-crm-telegrambot/
 - `get_admins()` → всі адміни (для telegram lookup)
 - `get_group_members(group_id)` → члени групи (Person + User)
 - `get_group_events(group_id)` → події групи
+- `get_group_stats(group_id, period)` → статистика групи (`period`: "1m" | "3m" | "6m")
 - `record_attendance(group_id, meeting_date, entries)` → POST /api/v1/attendance
 - `save_attendance_meta(group_id, meeting_date, guest_count)` → POST /api/v1/attendance/meta
 
 ### Handlers
-Роутери підключаються в `main.py`. Порядок: `common` → `attendance` → `plans` → `group_events`.
+Роутери підключаються в `main.py`. Порядок: `common` → `attendance` → `plans` → `group_events` → `stats`.
 
-**common.py** — `/start`, `/help`, `/test_notify` (тригерить notify_upcoming_events вручну)
+**common.py** — `/start`, `/help`, `/test_notify` (тригерить notify_upcoming_events вручну), `/test_conflict` (тригерить check_conflicts з force=True)
 
 **plans.py** — `/plan`:
 - Знаходить групу по `telegramGroupId == chat_id`
@@ -71,6 +73,13 @@ homegroup-crm-telegrambot/
 
 **group_events.py** — `my_chat_member` handler: при додаванні бота в групу надсилає chat ID для CRM.
 
+**stats.py** — `/stats`: статистика по групі за 1/3/6 місяців, 2 сторінки:
+- Сторінка 1 — відвідуваність по зустрічах: `{дд.мм} — N осіб (вкл. N гостей)`
+- Сторінка 2 — активність учасників: `{Ім'я}: M з N зустрічей (не було P разів ⚠️ якщо absent > 4)`
+- Перемикач місяців + навігація між сторінками — одна кнопка
+- **Stateless**: весь стан (`group_id`, `period`, `page`) вбудований у `callback_data` формату `st_{group_id}_{period}_{page}` — не залежить від пам'яті, працює після рестарту
+- `edit_message_text` викликається з keyword аргументами (в aiogram 3.x `business_connection_id` — другий позиційний параметр, що зміщує інші)
+
 ### Scheduler (`bot/schedulers/notifications.py`)
 Всі job-и в timezone `Europe/Kyiv`.
 
@@ -79,6 +88,11 @@ homegroup-crm-telegrambot/
 - `notify_upcoming_events` — щодня о 09:00: сповіщення про події групи
   - 🎉 Сьогодні / 📅 Через 7 днів
   - Рекурентні події (без року) — по місяць+день, одноразові (з роком) — точна дата
+- `check_conflicts` — щодня о 09:00: перевіряє накладки наступної зустрічі з іншими подіями (не HomeGroup)
+  - ⚠️ повідомляє якщо є накладка (з назвою події)
+  - ✅ повідомляє якщо накладку вирішено (тільки якщо раніше вже сповіщали)
+  - Дедуплікація: `_conflict_notified: set[(group_id, meeting_date)]` в пам'яті
+  - `force=True` (для `/test_conflict`) — повторно надсилає навіть якщо вже сповіщали, але не надсилає "✅ все чисто" без попередньої нотифікації
 - `notify_meeting_plan` — щодня о 18:00 (TODO: надсилати план напередодні зустрічі)
 
 ## Key Patterns
@@ -123,6 +137,7 @@ GET  /api/v1/groups/:id/cabinet
 GET  /api/v1/groups/:id/plans/date/:date
 GET  /api/v1/groups/:id/members
 GET  /api/v1/groups/:id/events
+GET  /api/v1/groups/:id/stats?period=1m|3m|6m
 GET  /api/v1/people
 GET  /api/v1/admins
 POST /api/v1/attendance
@@ -164,6 +179,9 @@ API_BASE_URL=http://localhost:8081 python -m bot.main
 - [x] Auto-trigger attendance через 1 год після початку зустрічі (scheduler, ±3 хв вікно)
 - [x] notify_upcoming_events — о 09:00: події сьогодні + через 7 днів
 - [x] /test_notify — ручний тригер сповіщень про події
+- [x] check_conflicts — о 09:00: накладки домашки з іншими подіями, дедупліковано
+- [x] /test_conflict — ручний тригер check_conflicts (force=True)
+- [x] /stats — статистика за 1/3/6 місяців, 2 сторінки, stateless inline keyboard
 
 ## TODO
 
