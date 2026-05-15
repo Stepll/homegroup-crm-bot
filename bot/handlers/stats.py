@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -115,8 +119,9 @@ async def cb_stats(callback: CallbackQuery, bot: Bot) -> None:
 
     try:
         await _render(bot, callback.message.chat.id, callback.message.message_id, group_id, period, page)
-    except Exception:
-        await callback.answer("Помилка завантаження.")
+    except Exception as e:
+        logger.exception("Stats render failed")
+        await callback.answer(f"{type(e).__name__}: {str(e)[:60]}", show_alert=True)
         return
 
     await callback.answer()
