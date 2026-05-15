@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -77,9 +77,54 @@ async def check_auto_attendance(bot: Bot) -> None:
             logger.exception("Failed to start auto attendance for group %s", group_id)
 
 
+def _event_matches(event: dict, target: date) -> bool:
+    """True if the event falls on target date (year-specific or recurring annual)."""
+    try:
+        month, day = event["month"], event["day"]
+        year = event.get("year")
+        if year:
+            return date(year, month, day) == target
+        # recurring — match month+day regardless of year
+        return target.month == month and target.day == day
+    except Exception:
+        return False
+
+
 async def notify_upcoming_events(bot: Bot) -> None:
-    # TODO: fetch groups, check upcoming events, send notifications
-    logger.info("notify_upcoming_events triggered")
+    today = date.today()
+    in_7 = today + timedelta(days=7)
+
+    try:
+        groups = await api_client.get_groups()
+    except Exception:
+        logger.exception("notify_upcoming_events: failed to fetch groups")
+        return
+
+    for group in groups:
+        tg_id = group.get("telegramGroupId")
+        if not tg_id:
+            continue
+
+        try:
+            events = await api_client.get_group_events(group["id"])
+        except Exception:
+            logger.exception("Failed to fetch events for group %s", group["id"])
+            continue
+
+        today_events = [e["name"] for e in events if _event_matches(e, today)]
+        week_events = [e["name"] for e in events if _event_matches(e, in_7)]
+
+        lines: list[str] = []
+        for name in today_events:
+            lines.append(f"🎉 Сьогодні — {name}")
+        for name in week_events:
+            lines.append(f"📅 Через 7 днів — {name}")
+
+        if lines:
+            try:
+                await bot.send_message(int(tg_id), "\n".join(lines))
+            except Exception:
+                logger.exception("Failed to send event notification to %s", tg_id)
 
 
 async def notify_meeting_plan(bot: Bot) -> None:
