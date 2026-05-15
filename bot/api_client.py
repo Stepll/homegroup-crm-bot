@@ -52,6 +52,12 @@ class ApiClient:
                 return None
             raise
 
+    async def get_people(self) -> list:
+        return await self._get("/api/v1/people")
+
+    async def get_admins(self) -> list:
+        return await self._get("/api/v1/admins")
+
     async def get_group_members(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/members")
 

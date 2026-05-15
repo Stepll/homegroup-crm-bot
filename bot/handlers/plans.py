@@ -6,6 +6,8 @@ from bot.api_client import api_client
 
 router = Router()
 
+SEPARATOR = "------------------"
+
 
 def _format_date(date: str) -> str:
     """'2026-05-15' → '15.05.2026'"""
@@ -16,18 +18,61 @@ def _format_date(date: str) -> str:
         return date
 
 
-def format_plan(plan: dict, date: str) -> str:
-    lines = [f"📋 <b>План зустрічі — {_format_date(date)}</b>"]
-    if plan.get("appliedTemplateName"):
-        lines.append(f"<i>{plan['appliedTemplateName']}</i>")
-    lines.append("")
-    for block in plan.get("blocks", []):
-        line = f"🕐 {block['time']} — <b>{block['title']}</b>"
-        if block.get("responsible"):
-            line += f" ({block['responsible']})"
+def build_telegram_map(people: list, admins: list) -> dict[str, str]:
+    """name (or full name) → telegram handle (without @)"""
+    result: dict[str, str] = {}
+    for person in people + admins:
+        telegram = (person.get("telegram") or "").lstrip("@").strip()
+        if not telegram:
+            continue
+        name = (person.get("name") or "").strip()
+        last = (person.get("lastName") or "").strip()
+        if name:
+            result[name.lower()] = telegram
+        if name and last:
+            result[f"{name} {last}".lower()] = telegram
+    return result
+
+
+def resolve_responsible(responsible: str | None, tg_map: dict[str, str]) -> str:
+    if not responsible:
+        return ""
+    responsible = responsible.strip()
+    if responsible.startswith("@"):
+        return responsible
+    key = responsible.lower()
+    if key in tg_map:
+        return f"@{tg_map[key]}"
+    return responsible
+
+
+def format_plan(plan: dict, date: str, tg_map: dict[str, str]) -> str:
+    blocks = plan.get("blocks", [])
+    timeline = [b for b in blocks if (b.get("time") or "").strip()]
+    footer = [b for b in blocks if not (b.get("time") or "").strip()]
+
+    lines = [f"План на {_format_date(date)}", SEPARATOR]
+
+    for block in timeline:
+        responsible = resolve_responsible(block.get("responsible"), tg_map)
+        line = f"{block['time']} - {block['title']}"
+        if responsible:
+            line += f": {responsible}"
         lines.append(line)
-        if block.get("info"):
-            lines.append(f"   <i>{block['info']}</i>")
+        for info_line in (block.get("info") or "").splitlines():
+            if info_line.strip():
+                lines.append(f"   • {info_line.strip()}")
+
+    if footer:
+        lines.append(SEPARATOR)
+        for block in footer:
+            responsible = resolve_responsible(block.get("responsible"), tg_map)
+            title = block.get("title", "")
+            if responsible:
+                lines.append(f"{responsible} - {title}")
+            else:
+                lines.append(title)
+
     return "\n".join(lines)
 
 
@@ -55,4 +100,7 @@ async def cmd_plan(message: Message) -> None:
         await message.answer(f"Плану на {_format_date(next_date)} ще немає.")
         return
 
-    await message.answer(format_plan(plan, next_date), parse_mode="HTML")
+    people, admins = await api_client.get_people(), await api_client.get_admins()
+    tg_map = build_telegram_map(people, admins)
+
+    await message.answer(format_plan(plan, next_date, tg_map))
