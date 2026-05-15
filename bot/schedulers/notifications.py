@@ -28,6 +28,9 @@ MEETING_DAY_MAP: dict[str, int] = {
 # (group_id, date_str) — avoid double-trigger within the same day
 _triggered: set[tuple[int, str]] = set()
 
+# (group_id, meeting_date) — groups where conflict was already reported
+_conflict_notified: set[tuple[int, str]] = set()
+
 
 async def check_auto_attendance(bot: Bot) -> None:
     from bot.handlers.attendance import start_attendance_flow
@@ -127,6 +130,50 @@ async def notify_upcoming_events(bot: Bot) -> None:
                 logger.exception("Failed to send event notification to %s", tg_id)
 
 
+async def check_conflicts(bot: Bot, force: bool = False) -> None:
+    try:
+        groups = await api_client.get_groups()
+    except Exception:
+        logger.exception("check_conflicts: failed to fetch groups")
+        return
+
+    for group in groups:
+        tg_id = group.get("telegramGroupId")
+        if not tg_id:
+            continue
+
+        try:
+            cabinet = await api_client.get_cabinet(group["id"])
+        except Exception:
+            logger.exception("Failed to fetch cabinet for group %s", group["id"])
+            continue
+
+        meeting_date = cabinet.get("nextMeetingDate")
+        if not meeting_date:
+            continue
+
+        conflicts = cabinet.get("nextMeetingConflicts") or []
+        has_conflict = len(conflicts) > 0
+        key = (group["id"], meeting_date)
+        was_notified = key in _conflict_notified
+
+        try:
+            if has_conflict and (not was_notified or force):
+                _conflict_notified.add(key)
+                await bot.send_message(
+                    int(tg_id),
+                    "⚠️ Увага — домашка перетинається з іншими подіями в розкладі",
+                )
+            elif not has_conflict and (was_notified or force):
+                _conflict_notified.discard(key)
+                await bot.send_message(
+                    int(tg_id),
+                    "✅ Все чисто — домашка більше ні з чим не перетинається",
+                )
+        except Exception:
+            logger.exception("Failed to send conflict notification to %s", tg_id)
+
+
 async def notify_meeting_plan(bot: Bot) -> None:
     # TODO: send plan day before meeting
     logger.info("notify_meeting_plan triggered")
@@ -149,6 +196,15 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot) -> None:
         minute=0,
         kwargs={"bot": bot},
         id="notify_upcoming_events",
+    )
+    # Check calendar conflicts — every day at 09:00
+    scheduler.add_job(
+        check_conflicts,
+        trigger="cron",
+        hour=9,
+        minute=0,
+        kwargs={"bot": bot},
+        id="check_conflicts",
     )
     # Send meeting plan — every day at 18:00
     scheduler.add_job(

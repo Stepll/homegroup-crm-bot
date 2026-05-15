@@ -2,7 +2,7 @@ from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.schedulers.notifications import notify_upcoming_events
+from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
 
 router = Router()
 
@@ -30,4 +30,11 @@ async def cmd_help(message: Message) -> None:
 async def cmd_test_notify(message: Message, bot: Bot) -> None:
     await message.answer("Запускаю сповіщення про події за сьогодні...")
     await notify_upcoming_events(bot)
+    await message.answer("Готово.")
+
+
+@router.message(Command("test_conflict"))
+async def cmd_test_conflict(message: Message, bot: Bot) -> None:
+    await message.answer("Перевіряю накладки в розкладі (force)...")
+    await check_conflicts(bot, force=True)
     await message.answer("Готово.")
