@@ -75,13 +75,11 @@ def _format_date(date: str) -> str:
 
 
 def _members_text(session: AttendanceSession) -> str:
-    present = [m.display_name for m in session.members if m.is_present]
-    lines = [f"Відмітьте присутніх за {_format_date(session.meeting_date)}:"]
-    if present:
-        lines.append("")
-        for name in present:
-            lines.append(f"✅ {name}")
-    return "\n".join(lines)
+    count = sum(1 for m in session.members if m.is_present)
+    return (
+        f"Відмітьте присутніх за {_format_date(session.meeting_date)}:\n"
+        f"Відмічено: {count} / {len(session.members)}"
+    )
 
 
 def _summary_text(session: AttendanceSession, guest_count: int) -> str:
@@ -95,6 +93,7 @@ def _summary_text(session: AttendanceSession, guest_count: int) -> str:
         lines.append(f"  • {m.display_name}")
     if guest_count > 0:
         lines.append(f"\nГостей: {guest_count}")
+    lines.append(f"\nВсього на домашці: {len(present) + guest_count}")
     return "\n".join(lines)
 
 
