@@ -73,6 +73,14 @@ class ApiClient:
             },
         )
 
+    async def save_attendance_meta(
+        self, group_id: int, meeting_date: str, guest_count: int
+    ) -> None:
+        await self._post(
+            "/api/v1/attendance/meta",
+            json={"homeGroupId": group_id, "meetingDate": meeting_date, "guestCount": guest_count},
+        )
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
