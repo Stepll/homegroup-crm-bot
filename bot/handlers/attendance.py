@@ -141,7 +141,7 @@ async def cmd_attendance(message: Message, bot: Bot) -> None:
         return
 
     cabinet = await api_client.get_cabinet(group["id"])
-    meeting_date = cabinet.get("lastMeetingDate") or cabinet.get("nextMeetingDate")
+    meeting_date = cabinet.get("lastMeetingDate") or cabinet.get("prevScheduledMeetingDate")
     if not meeting_date:
         await message.answer("Немає дати зустрічі.")
         return
