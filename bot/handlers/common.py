@@ -4,9 +4,9 @@ from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.api_client import api_client
 from bot.keyboards import private_main_keyboard
 from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
+from bot.utils import find_admin_by_telegram
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -41,26 +41,13 @@ PRIVATE_NO_USERNAME_TEXT = (
 )
 
 
-async def _find_admin_by_telegram(username: str) -> dict | None:
-    username_clean = username.lstrip("@").lower()
-    try:
-        admins = await api_client.get_admins()
-        for admin in admins:
-            tg = (admin.get("telegram") or "").lstrip("@").lower()
-            if tg and tg == username_clean:
-                return admin
-    except Exception:
-        logger.exception("Failed to fetch admins for telegram lookup")
-    return None
-
-
 async def _handle_private(message: Message) -> None:
     username = message.from_user.username if message.from_user else None
     if not username:
         await message.answer(PRIVATE_NO_USERNAME_TEXT)
         return
 
-    admin = await _find_admin_by_telegram(username)
+    admin = await find_admin_by_telegram(username)
     if admin is None:
         await message.answer(PRIVATE_UNKNOWN_TEXT.format(username=username))
         return

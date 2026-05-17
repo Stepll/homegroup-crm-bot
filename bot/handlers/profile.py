@@ -13,6 +13,7 @@ from aiogram.types import (
 )
 
 from bot.api_client import api_client
+from bot.utils import find_admin_by_telegram
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -61,18 +62,6 @@ class ProfileStates(StatesGroup):
 
 
 # --- Helpers ---
-
-async def _find_admin_by_username(username: str) -> dict | None:
-    username_clean = username.lstrip("@").lower()
-    try:
-        admins = await api_client.get_admins()
-        for admin in admins:
-            tg = (admin.get("telegram") or "").lstrip("@").lower()
-            if tg and tg == username_clean:
-                return admin
-    except Exception:
-        logger.exception("Failed to fetch admins for profile lookup")
-    return None
 
 
 def _format_profile(admin: dict) -> str:
@@ -212,7 +201,7 @@ async def btn_profile(message: Message, state: FSMContext) -> None:
     if not username:
         await message.answer("Не вдалося ідентифікувати ваш акаунт.")
         return
-    admin = await _find_admin_by_username(username)
+    admin = await find_admin_by_telegram(username)
     if admin is None:
         await message.answer("Ваш акаунт не знайдено в CRM.")
         return
@@ -234,7 +223,7 @@ async def cb_prof_edit(callback: CallbackQuery, state: FSMContext) -> None:
 async def cb_prof_back(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     username = callback.from_user.username
-    admin = await _find_admin_by_username(username) if username else None
+    admin = await find_admin_by_telegram(username) if username else None
     if admin is None:
         await callback.answer("Не вдалося завантажити профіль.")
         return
@@ -279,7 +268,7 @@ async def receive_field_value(message: Message, state: FSMContext) -> None:
     await state.clear()
 
     username = message.from_user.username if message.from_user else None
-    admin = await _find_admin_by_username(username) if username else None
+    admin = await find_admin_by_telegram(username) if username else None
     if admin is None:
         await message.answer("Не вдалося знайти ваш акаунт.")
         return
@@ -304,7 +293,7 @@ async def cb_prof_bool(callback: CallbackQuery) -> None:
     rest = callback.data.removeprefix("prof_bool_")
     field_key, str_val = rest.rsplit("_", 1)
     value = str_val == "true"
-    admin = await _find_admin_by_username(callback.from_user.username or "")
+    admin = await find_admin_by_telegram(callback.from_user.username or "")
     if admin is None:
         await callback.answer("Не вдалося знайти ваш акаунт.")
         return
@@ -314,7 +303,7 @@ async def cb_prof_bool(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("prof_gender_"))
 async def cb_prof_gender(callback: CallbackQuery) -> None:
     value = callback.data.removeprefix("prof_gender_")
-    admin = await _find_admin_by_username(callback.from_user.username or "")
+    admin = await find_admin_by_telegram(callback.from_user.username or "")
     if admin is None:
         await callback.answer("Не вдалося знайти ваш акаунт.")
         return
@@ -324,7 +313,7 @@ async def cb_prof_gender(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("prof_marital_"))
 async def cb_prof_marital(callback: CallbackQuery) -> None:
     value = callback.data.removeprefix("prof_marital_")
-    admin = await _find_admin_by_username(callback.from_user.username or "")
+    admin = await find_admin_by_telegram(callback.from_user.username or "")
     if admin is None:
         await callback.answer("Не вдалося знайти ваш акаунт.")
         return
