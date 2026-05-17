@@ -2,7 +2,6 @@ import logging
 from datetime import datetime
 
 from aiogram import F, Router
-from aiogram.filters import ChatType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -15,8 +14,8 @@ from aiogram.types import (
 from bot.api_client import api_client
 
 router = Router()
-router.message.filter(ChatType("private"))
-router.callback_query.filter(ChatType("private"))
+router.message.filter(F.chat.type == "private")
+router.callback_query.filter(F.chat.type == "private")
 
 logger = logging.getLogger(__name__)
 

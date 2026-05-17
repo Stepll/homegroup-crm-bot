@@ -1,9 +1,8 @@
 from aiogram import F, Router
-from aiogram.filters import ChatType
 from aiogram.types import Message
 
 router = Router()
-router.message.filter(ChatType("private"))
+router.message.filter(F.chat.type == "private")
 
 
 @router.message(F.text == "Домашка")
