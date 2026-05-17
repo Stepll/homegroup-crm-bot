@@ -38,6 +38,16 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json() if resp.content else None
 
+    async def _put(self, path: str, **kwargs) -> dict | list | None:
+        if not self._token:
+            await self._login()
+        resp = await self._client.put(path, headers=self._auth_headers(), **kwargs)
+        if resp.status_code == 401:
+            await self._login()
+            resp = await self._client.put(path, headers=self._auth_headers(), **kwargs)
+        resp.raise_for_status()
+        return resp.json() if resp.content else None
+
     async def get_groups(self) -> list:
         return await self._get("/api/v1/groups")
 
@@ -60,6 +70,12 @@ class ApiClient:
 
     async def get_admins(self) -> list:
         return await self._get("/api/v1/admins")
+
+    async def get_admin(self, admin_id: int) -> dict:
+        return await self._get(f"/api/v1/admins/{admin_id}")
+
+    async def update_profile(self, admin_id: int, payload: dict) -> None:
+        await self._put(f"/api/v1/admins/{admin_id}/profile", json=payload)
 
     async def get_group_events(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/events")

@@ -5,6 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from bot.api_client import api_client
+from bot.keyboards import private_main_keyboard
 from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
 
 router = Router()
@@ -24,14 +25,7 @@ GROUP_START_TEXT = (
 
 PRIVATE_KNOWN_TEXT = (
     "Привіт, {name}! Я тебе знаю — ти підключений до HomeGroup CRM.\n\n"
-    "Наразі основні команди (/plan, /attendance, /stats) працюють у групових чатах.\n"
-    "Щоб скористатись ними — додай мене в Telegram-групу своїх лідерів. "
-    "Я надсилатиму туди сповіщення про зустрічі, накладки в розкладі та події дня.\n\n"
-    "Як додати:\n"
-    "1. Відкрий групу лідерів у Telegram\n"
-    "2. Додай бота як учасника\n"
-    "3. Я надішлю chat ID — скопіюй його в CRM (картка групи → Telegram Group ID)\n\n"
-    "Функції приватного чату з'являться згодом."
+    "Обирай розділ у меню нижче."
 )
 
 PRIVATE_UNKNOWN_TEXT = (
@@ -70,7 +64,10 @@ async def _handle_private(message: Message) -> None:
         return
 
     name = admin.get("name") or "Адміне"
-    await message.answer(PRIVATE_KNOWN_TEXT.format(name=name))
+    await message.answer(
+        PRIVATE_KNOWN_TEXT.format(name=name),
+        reply_markup=private_main_keyboard(),
+    )
 
 
 @router.message(Command("start"))
