@@ -117,6 +117,7 @@ async def cb_members_list(callback: CallbackQuery, state: FSMContext) -> None:
             callback_data=f"mem_{tc}_{group_id}_{member_id}",
         )])
 
+    rows.append([InlineKeyboardButton(text="← Назад", callback_data="hg_overview")])
     await callback.message.edit_text(
         "\n".join(lines),
         parse_mode="HTML",
