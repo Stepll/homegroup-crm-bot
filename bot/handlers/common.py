@@ -1,13 +1,16 @@
+import logging
+
 from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from bot.api_client import api_client
 from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
 
 router = Router()
+logger = logging.getLogger(__name__)
 
-
-START_TEXT = (
+GROUP_START_TEXT = (
     "Вітаю! Я бот HomeGroup CRM.\n\n"
     "Команди:\n"
     "/plan — план наступної зустрічі\n"
@@ -19,15 +22,71 @@ START_TEXT = (
     "• Щодня о 09:00 — попередження якщо зустріч перетинається з іншими подіями"
 )
 
+PRIVATE_KNOWN_TEXT = (
+    "Привіт, {name}! Я тебе знаю — ти підключений до HomeGroup CRM.\n\n"
+    "Наразі основні команди (/plan, /attendance, /stats) працюють у групових чатах.\n"
+    "Щоб скористатись ними — додай мене в Telegram-групу своїх лідерів. "
+    "Я надсилатиму туди сповіщення про зустрічі, накладки в розкладі та події дня.\n\n"
+    "Як додати:\n"
+    "1. Відкрий групу лідерів у Telegram\n"
+    "2. Додай бота як учасника\n"
+    "3. Я надішлю chat ID — скопіюй його в CRM (картка групи → Telegram Group ID)\n\n"
+    "Функції приватного чату з'являться згодом."
+)
+
+PRIVATE_UNKNOWN_TEXT = (
+    "Привіт! На жаль, ваш акаунт (@{username}) не знайдено в HomeGroup CRM.\n"
+    "Зверніться до адміністратора системи."
+)
+
+PRIVATE_NO_USERNAME_TEXT = (
+    "Привіт! Не вдалося вас ідентифікувати — у вас не встановлений @username у Telegram.\n"
+    "Встановіть його в налаштуваннях Telegram і спробуйте знову."
+)
+
+
+async def _find_admin_by_telegram(username: str) -> dict | None:
+    username_clean = username.lstrip("@").lower()
+    try:
+        admins = await api_client.get_admins()
+        for admin in admins:
+            tg = (admin.get("telegram") or "").lstrip("@").lower()
+            if tg and tg == username_clean:
+                return admin
+    except Exception:
+        logger.exception("Failed to fetch admins for telegram lookup")
+    return None
+
+
+async def _handle_private(message: Message) -> None:
+    username = message.from_user.username if message.from_user else None
+    if not username:
+        await message.answer(PRIVATE_NO_USERNAME_TEXT)
+        return
+
+    admin = await _find_admin_by_telegram(username)
+    if admin is None:
+        await message.answer(PRIVATE_UNKNOWN_TEXT.format(username=username))
+        return
+
+    name = admin.get("name") or "Адміне"
+    await message.answer(PRIVATE_KNOWN_TEXT.format(name=name))
+
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
-    await message.answer(START_TEXT)
+    if message.chat.type == "private":
+        await _handle_private(message)
+    else:
+        await message.answer(GROUP_START_TEXT)
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(START_TEXT)
+    if message.chat.type == "private":
+        await _handle_private(message)
+    else:
+        await message.answer(GROUP_START_TEXT)
 
 
 @router.message(Command("test_notify"))
