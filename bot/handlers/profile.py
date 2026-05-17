@@ -1,3 +1,4 @@
+import html
 import logging
 from datetime import datetime
 
@@ -76,7 +77,7 @@ async def _find_admin_by_username(username: str) -> dict | None:
 
 def _format_profile(admin: dict) -> str:
     def val(v: str | None) -> str:
-        return v.strip() if v and v.strip() else "—"
+        return html.escape(v.strip()) if v and v.strip() else "—"
 
     gender_map = dict(GENDER_OPTIONS)
     marital_map = dict(MARITAL_OPTIONS)
@@ -90,23 +91,28 @@ def _format_profile(admin: dict) -> str:
             dob = dob_raw[:10]
 
     name_parts = [admin.get("name") or "", admin.get("lastName") or ""]
-    full_name = " ".join(p for p in name_parts if p).strip() or "—"
+    full_name = html.escape(" ".join(p for p in name_parts if p).strip() or "—")
 
     tg_raw = admin.get("telegram") or ""
-    tg = ("@" + tg_raw.lstrip("@")) if tg_raw.strip() else "—"
+    tg = html.escape("@" + tg_raw.lstrip("@")) if tg_raw.strip() else "—"
 
-    roles = ", ".join(r.get("name", "") for r in (admin.get("roles") or []))
-    status_name = (admin.get("status") or {}).get("name") or ""
+    roles = html.escape(", ".join(r.get("name", "") for r in (admin.get("roles") or [])))
+    status_name = html.escape((admin.get("status") or {}).get("name") or "")
     group_name = val(admin.get("primaryGroupName"))
 
+    gender_raw = admin.get("gender") or ""
+    gender = html.escape(gender_map.get(gender_raw, gender_raw or "—"))
+    marital_raw = admin.get("maritalStatus") or ""
+    marital = html.escape(marital_map.get(marital_raw, marital_raw or "—"))
+
     lines = [
-        f"*{full_name}*",
+        f"<b>{full_name}</b>",
         "",
         f"Телефон: {val(admin.get('phone'))}",
         f"Telegram: {tg}",
         f"Email: {val(admin.get('email'))}",
-        f"Стать: {gender_map.get(admin.get('gender') or '', val(admin.get('gender')))}",
-        f"Сімейний стан: {marital_map.get(admin.get('maritalStatus') or '', val(admin.get('maritalStatus')))}",
+        f"Стать: {gender}",
+        f"Сімейний стан: {marital}",
         f"Дата народження: {dob}",
         f"Хрещений водою: {'Так' if admin.get('isBaptized') else 'Ні'}",
         f"Хрещений Духом: {'Так' if admin.get('isBaptizedWithSpirit') else 'Ні'}",
@@ -212,7 +218,7 @@ async def btn_profile(message: Message, state: FSMContext) -> None:
         return
     await message.answer(
         _format_profile(admin),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_profile_view_kb(),
     )
 
@@ -234,7 +240,7 @@ async def cb_prof_back(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await callback.message.edit_text(
         _format_profile(admin),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_profile_view_kb(),
     )
     await callback.answer()
@@ -338,7 +344,7 @@ async def _save_and_show(message: Message, admin: dict, patch: dict) -> None:
     fresh = await api_client.get_admin(admin["id"])
     await message.answer(
         _format_profile(fresh),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_profile_view_kb(),
     )
 
@@ -354,7 +360,7 @@ async def _save_and_show_cb(callback: CallbackQuery, admin: dict, patch: dict) -
     fresh = await api_client.get_admin(admin["id"])
     await callback.message.edit_text(
         _format_profile(fresh),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_profile_view_kb(),
     )
     await callback.answer("Збережено")
