@@ -77,6 +77,18 @@ class ApiClient:
     async def update_profile(self, admin_id: int, payload: dict) -> None:
         await self._put(f"/api/v1/admins/{admin_id}/profile", json=payload)
 
+    async def get_group(self, group_id: int) -> dict:
+        return await self._get(f"/api/v1/groups/{group_id}")
+
+    async def update_group(self, group_id: int, payload: dict) -> None:
+        await self._put(f"/api/v1/groups/{group_id}", json=payload)
+
+    async def skip_meeting(self, group_id: int) -> dict:
+        return await self._put(f"/api/v1/groups/{group_id}/skip-meeting")
+
+    async def set_next_meeting(self, group_id: int, date: str) -> None:
+        await self._put(f"/api/v1/groups/{group_id}/next-meeting", json={"date": date})
+
     async def get_group_events(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/events")
 
