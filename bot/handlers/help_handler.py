@@ -12,14 +12,15 @@ _BACK = [[InlineKeyboardButton(text="← Назад", callback_data="help_main")
 # ── Texts ─────────────────────────────────────────────────────────────────────
 
 def _main_text() -> str:
-    site_line = f"\n🌐 Сайт: {settings.website_url}" if settings.website_url else ""
-    return (
+    text = (
         "<b>HomeGroup CRM Bot</b>\n\n"
         "Бот-помічник для лідерів домашніх груп. Дозволяє керувати групою, "
         "відмічати присутніх, переглядати статистику та отримувати сповіщення — "
         "все прямо в Telegram."
-        f"{site_line}"
     )
+    if settings.website_url:
+        text += f"\n\n🌐 Сайт: {settings.website_url}"
+    return text
 
 
 _CONNECT_TEXT = (

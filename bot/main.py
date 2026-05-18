@@ -38,7 +38,7 @@ async def main() -> None:
     setup_scheduler(scheduler, bot)
     scheduler.start()
 
-    logger.info("Starting bot polling...")
+    logger.info("Starting bot polling... website_url=%r", settings.website_url)
     try:
         await dp.start_polling(bot)
     finally:
