@@ -13,6 +13,7 @@ from aiogram.types import (
 )
 
 from bot.api_client import api_client
+from bot.utils import find_admin_by_telegram
 
 router = Router()
 router.callback_query.filter(F.message.chat.type == "private")
@@ -81,11 +82,7 @@ def _find_stat(stats: dict, is_admin: bool, member_id: int) -> dict | None:
 
 # ── Members list ──────────────────────────────────────────────────────────────
 
-@router.callback_query(F.data.startswith("hg_members_"))
-async def cb_members_list(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    group_id = int(callback.data.split("_")[2])
-
+async def _build_members_list(group_id: int) -> tuple[str, InlineKeyboardMarkup]:
     members, stats = await _fetch_members_and_stats(group_id)
 
     stat_by_pid = {s["personId"]: s for s in (stats.get("personStats") or []) if s.get("personId")}
@@ -118,11 +115,31 @@ async def cb_members_list(callback: CallbackQuery, state: FSMContext) -> None:
         )])
 
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="hg_overview")])
-    await callback.message.edit_text(
-        "\n".join(lines),
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.message(F.text == "Учасники")
+async def btn_members(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    username = message.from_user.username if message.from_user else None
+    admin = await find_admin_by_telegram(username or "")
+    if admin is None:
+        await message.answer("Ваш акаунт не знайдено в CRM.")
+        return
+    group_id = admin.get("primaryGroupId")
+    if not group_id:
+        await message.answer("У вас не вказана основна група в CRM.")
+        return
+    text, kb = await _build_members_list(group_id)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hg_members_"))
+async def cb_members_list(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    group_id = int(callback.data.split("_")[2])
+    text, kb = await _build_members_list(group_id)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
