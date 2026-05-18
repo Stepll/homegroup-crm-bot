@@ -9,19 +9,20 @@ router.message.filter(F.chat.type == "private")
 router.callback_query.filter(F.message.chat.type == "private")
 
 _LABELS: dict[str, tuple[str, str]] = {
-    "event_7days":          ("📅 7 днів",         "📅 За 7 днів до події церкви\nНагадування у Telegram-групу за тиждень до події."),
-    "event_day":            ("📅 День події",      "📅 В день події церкви\nНагадування вранці у день проведення події."),
-    "conflict":             ("⚡ Накладка",        "⚡ Накладка зустрічі з подіями церкви\nСповіщення, якщо час домашки збігається з іншою подією."),
-    "conflict_resolved":    ("✔ Виправлення",     "✔ Виправлення накладки\nСповіщення, коли конфлікт розкладу усунено."),
-    "attendance_ask":       ("🙋 Відмітка",        "🙋 Нагадування відмітити присутніх\nЗапит через годину після початку зустрічі."),
+    "event_7days":          ("📅 7 днів",      "📅 За 7 днів до події\nНагадування у Telegram-групу за тиждень до події."),
+    "event_day":            ("📅 День події",  "📅 В день події\nНагадування вранці у день події."),
+    "conflict":             ("⚡ Накладка",    "⚡ Накладка домашки з іншою подією\nСповіщення, якщо час домашки збігається з іншою подією."),
+    "conflict_resolved":    ("✔ Виправлення", "✔ Виправлення накладки\nСповіщення, коли конфлікт розкладу усунено."),
+    "attendance_ask":       ("🙋 Відмітка",   "🙋 Нагадування відмітити присутніх\nЗапит через годину після початку домашки."),
 }
 
 
 def _notif_text(settings: dict[str, bool]) -> str:
     lines = ["<b>Сповіщення групи</b>\n"]
     for key, (_, desc) in _LABELS.items():
-        status = "✅ Увімкнено" if settings[key] else "❌ Вимкнено"
-        lines.append(f"{desc}\n<b>{status}</b>\n")
+        emoji = "✅" if settings[key] else "❌"
+        title, rest = desc.split("\n", 1)
+        lines.append(f"{title} {emoji}\n{rest}\n")
     return "\n".join(lines)
 
 
