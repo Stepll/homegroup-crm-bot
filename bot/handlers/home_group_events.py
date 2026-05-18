@@ -98,25 +98,16 @@ async def _get_group_cb(callback: CallbackQuery) -> int | None:
 
 def _main_kb(group_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Показати повний список", callback_data=f"ge_full_{group_id}")],
         [
-            InlineKeyboardButton(text="Показати повний список", callback_data=f"ge_full_{group_id}"),
-            InlineKeyboardButton(text="Редагувати", callback_data=f"ge_manage_{group_id}"),
+            InlineKeyboardButton(text="Створити", callback_data=f"ge_create_{group_id}"),
+            InlineKeyboardButton(text="Редагувати", callback_data=f"ge_elist_{group_id}"),
         ],
     ])
 
 
 def _full_kb(group_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="← Назад", callback_data=f"ge_main_{group_id}")],
-    ])
-
-
-def _manage_kb(group_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Створити", callback_data=f"ge_create_{group_id}"),
-            InlineKeyboardButton(text="Редагувати", callback_data=f"ge_elist_{group_id}"),
-        ],
         [InlineKeyboardButton(text="← Назад", callback_data=f"ge_main_{group_id}")],
     ])
 
@@ -129,7 +120,7 @@ def _elist_kb(events: list, group_id: int) -> InlineKeyboardMarkup:
         )]
         for ev in events
     ]
-    rows.append([InlineKeyboardButton(text="← Назад", callback_data=f"ge_manage_{group_id}")])
+    rows.append([InlineKeyboardButton(text="← Назад", callback_data=f"ge_main_{group_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -193,19 +184,6 @@ async def cb_full(callback: CallbackQuery) -> None:
     events = await api_client.get_group_events(group_id)
     text = _events_text(events, "Всі події")
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=_full_kb(group_id))
-    await callback.answer()
-
-
-# ── Manage menu ───────────────────────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("ge_manage_"))
-async def cb_manage(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    group_id = int(callback.data.split("_")[2])
-    events = await api_client.get_group_events(group_id)
-    preview = events[:5]
-    text = _events_text(preview, f"Найближчі події (5 з {len(events)})" if len(events) > 5 else "Найближчі події")
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=_manage_kb(group_id))
     await callback.answer()
 
 
@@ -285,7 +263,7 @@ async def cb_create(callback: CallbackQuery, state: FSMContext) -> None:
     group_id = int(callback.data.split("_")[2])
     await state.set_state(GEStates.create_name)
     await state.update_data(group_id=group_id)
-    await callback.message.edit_reply_markup(reply_markup=_cancel_kb(f"ge_manage_{group_id}"))
+    await callback.message.edit_reply_markup(reply_markup=_cancel_kb(f"ge_main_{group_id}"))
     await callback.message.answer("Введіть назву нової події:")
     await callback.answer()
 
