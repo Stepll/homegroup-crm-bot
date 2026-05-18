@@ -58,8 +58,4 @@ async def btn_stats(message: Message) -> None:
 
 
 
-@router.message(F.text == "План")
-async def btn_plan(message: Message) -> None:
-    await message.answer("Розділ «План» — незабаром.")
-
 
