@@ -114,7 +114,6 @@ async def _build_members_list(group_id: int) -> tuple[str, InlineKeyboardMarkup]
             callback_data=f"mem_{tc}_{group_id}_{member_id}",
         )])
 
-    rows.append([InlineKeyboardButton(text="← Назад", callback_data="hg_overview")])
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
 

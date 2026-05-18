@@ -352,7 +352,6 @@ def _next_meeting_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Пропустити", callback_data="hg_skip"),
             InlineKeyboardButton(text="Перенести", callback_data="hg_reschedule"),
         ],
-        [InlineKeyboardButton(text="← Назад", callback_data="hg_overview")],
     ])
 
 
