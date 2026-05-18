@@ -631,23 +631,134 @@ async def _patch_and_show_cb(
     await callback.answer("Збережено")
 
 
-# ── Stubs ─────────────────────────────────────────────────────────────────────
+# ── Create plan (→ edit list) ─────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("pp_create_"))
-async def cb_create(callback: CallbackQuery) -> None:
-    await callback.answer("Незабаром...", show_alert=True)
+async def cb_create(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    group_id = int(callback.data.split("_")[2])
+    plan, next_date = await _load_plan_data(group_id)
+    if not next_date:
+        await callback.answer("Немає дати зустрічі.", show_alert=True)
+        return
+    if plan is None:
+        plan = {"blocks": []}
+    await callback.message.edit_text(
+        f"<b>Редагування плану на {_fmt_date(next_date)}</b>",
+        parse_mode="HTML",
+        reply_markup=_edit_list_kb(plan, group_id),
+    )
+    await callback.answer()
 
+
+# ── From template ─────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("pp_template_"))
-async def cb_template(callback: CallbackQuery) -> None:
-    await callback.answer("Незабаром...", show_alert=True)
+async def cb_template(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    group_id = int(callback.data.split("_")[2])
+    templates = await api_client.get_plan_templates()
+    if not templates:
+        await callback.answer("Шаблонів немає.", show_alert=True)
+        return
+    rows = [
+        [InlineKeyboardButton(
+            text=html.escape(t["name"]),
+            callback_data=f"pp_tmpl_{group_id}_{t['id']}",
+        )]
+        for t in templates
+    ]
+    rows.append([InlineKeyboardButton(text="← Назад", callback_data=f"pp_reload_{group_id}")])
+    await callback.message.edit_text(
+        "<b>Оберіть шаблон:</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+    await callback.answer()
 
+
+@router.callback_query(F.data.startswith("pp_tmpl_"))
+async def cb_apply_template(callback: CallbackQuery) -> None:
+    parts = callback.data.split("_")
+    group_id, template_id = int(parts[2]), int(parts[3])
+    _, next_date = await _load_plan_data(group_id)
+    if not next_date:
+        await callback.answer("Немає дати зустрічі.", show_alert=True)
+        return
+    templates = await api_client.get_plan_templates()
+    tmpl = next((t for t in templates if t["id"] == template_id), None)
+    if not tmpl:
+        await callback.answer("Шаблон не знайдено.", show_alert=True)
+        return
+    blocks = [
+        {
+            "order": b["order"],
+            "time": b.get("time") or None,
+            "title": b.get("title") or "",
+            "info": b.get("info") or None,
+            "responsible": b.get("responsible") or None,
+        }
+        for b in sorted(tmpl.get("blocks") or [], key=lambda x: x.get("order", 0))
+    ]
+    try:
+        saved = await _save_plan(group_id, next_date, blocks)
+    except Exception:
+        logger.exception("Failed to apply template")
+        await callback.answer("Помилка застосування шаблону.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"<b>Редагування плану на {_fmt_date(next_date)}</b>",
+        parse_mode="HTML",
+        reply_markup=_edit_list_kb(saved, group_id),
+    )
+    await callback.answer("Шаблон застосовано ✓")
+
+
+# ── Clear plan ────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("pp_clear_"))
 async def cb_clear(callback: CallbackQuery) -> None:
-    await callback.answer("Незабаром...", show_alert=True)
+    group_id = int(callback.data.split("_")[2])
+    await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Так, видалити", callback_data=f"pp_clearok_{group_id}"),
+        InlineKeyboardButton(text="Скасувати", callback_data=f"pp_reload_{group_id}"),
+    ]]))
+    await callback.answer()
 
+
+@router.callback_query(F.data.startswith("pp_clearok_"))
+async def cb_clearok(callback: CallbackQuery) -> None:
+    group_id = int(callback.data.split("_")[2])
+    _, next_date = await _load_plan_data(group_id)
+    if not next_date:
+        await callback.answer("Немає дати зустрічі.", show_alert=True)
+        return
+    try:
+        await api_client.delete_plan(group_id, next_date)
+    except Exception:
+        logger.exception("Failed to delete plan")
+        await callback.answer("Помилка видалення.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"Плану на {_fmt_date(next_date)} ще немає.",
+        reply_markup=_no_plan_kb(group_id),
+    )
+    await callback.answer("План видалено")
+
+
+# ── Send to Telegram group ────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("pp_send_"))
 async def cb_send(callback: CallbackQuery) -> None:
-    await callback.answer("Незабаром...", show_alert=True)
+    group_id = int(callback.data.split("_")[2])
+    _, next_date = await _load_plan_data(group_id)
+    if not next_date:
+        await callback.answer("Немає дати зустрічі.", show_alert=True)
+        return
+    try:
+        await api_client.send_plan_to_telegram(group_id, next_date)
+    except Exception:
+        logger.exception("Failed to send plan to Telegram")
+        await callback.answer("Помилка відправки.", show_alert=True)
+        return
+    await callback.answer("План відправлено в групу ✓", show_alert=True)

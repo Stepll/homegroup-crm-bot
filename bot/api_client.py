@@ -142,6 +142,15 @@ class ApiClient:
             json={"homeGroupId": group_id, "meetingDate": meeting_date, "guestCount": guest_count},
         )
 
+    async def get_plan_templates(self) -> list:
+        return await self._get("/api/v1/plan-templates")
+
+    async def delete_plan(self, group_id: int, date: str) -> None:
+        await self._delete(f"/api/v1/groups/{group_id}/plans/date/{date}")
+
+    async def send_plan_to_telegram(self, group_id: int, date: str) -> None:
+        await self._post(f"/api/v1/groups/{group_id}/plans/date/{date}/send-to-telegram")
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
