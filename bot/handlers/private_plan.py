@@ -147,6 +147,7 @@ def _block_card_text(block: dict) -> str:
 
 def _block_card_kb(group_id: int, order: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="↕ Змінити порядок", callback_data=f"pp_border_{group_id}_{order}")],
         [
             InlineKeyboardButton(text="Час", callback_data=f"pp_btime_{group_id}_{order}"),
             InlineKeyboardButton(text="Назва", callback_data=f"pp_btitle_{group_id}_{order}"),
@@ -158,6 +159,69 @@ def _block_card_kb(group_id: int, order: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🗑 Видалити блок", callback_data=f"pp_bdel_{group_id}_{order}")],
         [InlineKeyboardButton(text="← Назад", callback_data=f"pp_edit_{group_id}")],
     ])
+
+
+def _reorder_text(blocks: list, selected_order: int) -> str:
+    sorted_blocks = sorted(blocks, key=lambda b: b.get("order", 0))
+    lines = []
+    for i, b in enumerate(sorted_blocks, start=1):
+        time_str = (b.get("time") or "").strip()
+        title = html.escape((b.get("title") or "").strip())
+        label = f"{time_str + ' — ' if time_str else ''}{title}"
+        marker = " ◀" if b["order"] == selected_order else ""
+        lines.append(f"{i}. {label}{marker}")
+    return "<b>Порядок блоків:</b>\n\n" + "\n".join(lines)
+
+
+def _reorder_kb(blocks: list, group_id: int, selected_order: int) -> InlineKeyboardMarkup:
+    sorted_blocks = sorted(blocks, key=lambda b: b.get("order", 0))
+    idx = next((i for i, b in enumerate(sorted_blocks) if b["order"] == selected_order), -1)
+    n = len(sorted_blocks)
+    rows = []
+    arrow_row = []
+    if idx > 0:
+        arrow_row.append(InlineKeyboardButton(text="↑", callback_data=f"pp_bord_up_{group_id}_{selected_order}"))
+    if idx < n - 1:
+        arrow_row.append(InlineKeyboardButton(text="↓", callback_data=f"pp_bord_dn_{group_id}_{selected_order}"))
+    if arrow_row:
+        rows.append(arrow_row)
+    top_bot_row = []
+    if idx > 0:
+        top_bot_row.append(InlineKeyboardButton(text="⬆️ На початок", callback_data=f"pp_bord_tp_{group_id}_{selected_order}"))
+    if idx < n - 1:
+        top_bot_row.append(InlineKeyboardButton(text="⬇️ В кінець", callback_data=f"pp_bord_bt_{group_id}_{selected_order}"))
+    if top_bot_row:
+        rows.append(top_bot_row)
+    rows.append([
+        InlineKeyboardButton(text="✓ Зберегти", callback_data=f"pp_edit_{group_id}"),
+        InlineKeyboardButton(text="← Назад", callback_data=f"pp_eblk_{group_id}_{selected_order}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _apply_move(blocks: list, selected_order: int, direction: str) -> tuple[list, int]:
+    sorted_blocks = sorted(blocks, key=lambda b: b.get("order", 0))
+    idx = next((i for i, b in enumerate(sorted_blocks) if b["order"] == selected_order), -1)
+    if idx == -1:
+        return sorted_blocks, selected_order
+    n = len(sorted_blocks)
+    if direction == "up" and idx > 0:
+        sorted_blocks.insert(idx - 1, sorted_blocks.pop(idx))
+        new_idx = idx - 1
+    elif direction == "dn" and idx < n - 1:
+        sorted_blocks.insert(idx + 1, sorted_blocks.pop(idx))
+        new_idx = idx + 1
+    elif direction == "tp" and idx > 0:
+        sorted_blocks.insert(0, sorted_blocks.pop(idx))
+        new_idx = 0
+    elif direction == "bt" and idx < n - 1:
+        sorted_blocks.append(sorted_blocks.pop(idx))
+        new_idx = len(sorted_blocks) - 1
+    else:
+        return sorted_blocks, selected_order
+    for i, b in enumerate(sorted_blocks, start=1):
+        b["order"] = i
+    return sorted_blocks, sorted_blocks[new_idx]["order"]
 
 
 async def _resp_kb(
@@ -260,6 +324,48 @@ async def cb_block_card(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Блок не знайдено.", show_alert=True)
         return
     await callback.message.edit_text(_block_card_text(block), parse_mode="HTML", reply_markup=_block_card_kb(group_id, order))
+    await callback.answer()
+
+
+# ── Reorder block ────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("pp_border_"))
+async def cb_border(callback: CallbackQuery) -> None:
+    parts = callback.data.split("_")
+    group_id, selected_order = int(parts[2]), int(parts[3])
+    plan, _ = await _load_plan_data(group_id)
+    blocks = (plan.get("blocks") or []) if plan else []
+    await callback.message.edit_text(
+        _reorder_text(blocks, selected_order),
+        parse_mode="HTML",
+        reply_markup=_reorder_kb(blocks, group_id, selected_order),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pp_bord_"))
+async def cb_bord_move(callback: CallbackQuery) -> None:
+    parts = callback.data.split("_")
+    # pp_bord_up_1_3 → ["pp", "bord", "up", "1", "3"]
+    direction = parts[2]
+    group_id, selected_order = int(parts[3]), int(parts[4])
+    plan, next_date = await _load_plan_data(group_id)
+    if not plan or not next_date:
+        await callback.answer("Плану не знайдено.", show_alert=True)
+        return
+    blocks, new_order = _apply_move(list(plan.get("blocks") or []), selected_order, direction)
+    try:
+        saved = await _save_plan(group_id, next_date, blocks)
+    except Exception:
+        logger.exception("Failed to reorder blocks")
+        await callback.answer("Помилка збереження.", show_alert=True)
+        return
+    saved_blocks = saved.get("blocks") or []
+    await callback.message.edit_text(
+        _reorder_text(saved_blocks, new_order),
+        parse_mode="HTML",
+        reply_markup=_reorder_kb(saved_blocks, group_id, new_order),
+    )
     await callback.answer()
 
 
