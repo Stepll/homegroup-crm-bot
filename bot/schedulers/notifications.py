@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -28,8 +30,32 @@ MEETING_DAY_MAP: dict[str, int] = {
 # (group_id, date_str) — avoid double-trigger within the same day
 _triggered: set[tuple[int, str]] = set()
 
-# (group_id, meeting_date) — groups where conflict was already reported
-_conflict_notified: set[tuple[int, str]] = set()
+# Persistent conflict state — loaded from disk on startup
+# key: "{group_id}:{meeting_date}", value: "conflicted" | "resolved"
+_CONFLICT_STATE_FILE = os.path.join(os.path.dirname(__file__), "../../data/conflict_state.json")
+_conflict_state: dict[str, str] = {}
+
+
+def _load_conflict_state() -> None:
+    global _conflict_state
+    try:
+        with open(_CONFLICT_STATE_FILE) as f:
+            _conflict_state = json.load(f)
+        logger.info("Loaded conflict state: %d entries", len(_conflict_state))
+    except FileNotFoundError:
+        _conflict_state = {}
+    except Exception:
+        logger.exception("Failed to load conflict state, starting fresh")
+        _conflict_state = {}
+
+
+def _save_conflict_state() -> None:
+    try:
+        os.makedirs(os.path.dirname(_CONFLICT_STATE_FILE), exist_ok=True)
+        with open(_CONFLICT_STATE_FILE, "w") as f:
+            json.dump(_conflict_state, f)
+    except Exception:
+        logger.exception("Failed to save conflict state")
 
 
 async def check_auto_attendance(bot: Bot) -> None:
@@ -153,24 +179,28 @@ async def check_conflicts(bot: Bot, force: bool = False) -> None:
             continue
 
         conflicts = cabinet.get("nextMeetingConflicts") or []
-        has_conflict = len(conflicts) > 0
-        key = (group["id"], meeting_date)
-        was_notified = key in _conflict_notified
+        has_conflict = bool(conflicts)
+        key = f"{group['id']}:{meeting_date}"
+        current_state = _conflict_state.get(key)
 
         try:
-            if has_conflict and (not was_notified or force):
-                _conflict_notified.add(key)
+            if has_conflict and (current_state != "conflicted" or force):
                 names = ", ".join(c.get("title", "?") for c in conflicts)
                 await bot.send_message(
                     int(tg_id),
                     f"⚠️ Накладка в розкладі — домашка перетинається з: {names}",
                 )
-            elif not has_conflict and was_notified:
-                _conflict_notified.discard(key)
+                _conflict_state[key] = "conflicted"
+                _save_conflict_state()
+
+            elif not has_conflict and current_state == "conflicted":
                 await bot.send_message(
                     int(tg_id),
                     "✅ Все чисто — домашка більше ні з чим не перетинається",
                 )
+                _conflict_state[key] = "resolved"
+                _save_conflict_state()
+
         except Exception:
             logger.exception("Failed to send conflict notification to %s", tg_id)
 
@@ -181,6 +211,7 @@ async def notify_meeting_plan(bot: Bot) -> None:
 
 
 def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot) -> None:
+    _load_conflict_state()
     # Auto attendance — check every minute
     scheduler.add_job(
         check_auto_attendance,
