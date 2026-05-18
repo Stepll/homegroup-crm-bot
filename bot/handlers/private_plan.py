@@ -76,7 +76,7 @@ async def _save_plan(group_id: int, date: str, blocks: list) -> dict:
     payload_blocks = [
         {
             "order": b.get("order", 9999),
-            "time": b.get("time") or None,
+            "time": b.get("time") or "",
             "title": b.get("title") or "",
             "info": b.get("info") or None,
             "responsible": b.get("responsible") or None,
