@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     api_base_url: str = "http://api:8080"
     api_email: str
     api_password: str
+    website_url: str = ""
 
 
 settings = Settings()

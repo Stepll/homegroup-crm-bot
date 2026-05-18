@@ -8,6 +8,7 @@ def private_main_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Відмітка присутніх"), KeyboardButton(text="Статистика")],
             [KeyboardButton(text="План"), KeyboardButton(text="Наступна домашка")],
             [KeyboardButton(text="Учасники"), KeyboardButton(text="Події домашки")],
+            [KeyboardButton(text="Сповіщення групи"), KeyboardButton(text="Допомога")],
         ],
         resize_keyboard=True,
     )
