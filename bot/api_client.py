@@ -63,6 +63,9 @@ class ApiClient:
     async def get_cabinet(self, group_id: int) -> dict:
         return await self._get(f"/api/v1/groups/{group_id}/cabinet")
 
+    async def save_plan(self, group_id: int, payload: dict) -> dict:
+        return await self._post(f"/api/v1/groups/{group_id}/plans", json=payload)
+
     async def get_plan(self, group_id: int, date: str) -> dict | None:
         try:
             return await self._get(f"/api/v1/groups/{group_id}/plans/date/{date}")
