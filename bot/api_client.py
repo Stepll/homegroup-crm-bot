@@ -38,6 +38,15 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json() if resp.content else None
 
+    async def _delete(self, path: str) -> None:
+        if not self._token:
+            await self._login()
+        resp = await self._client.delete(path, headers=self._auth_headers())
+        if resp.status_code == 401:
+            await self._login()
+            resp = await self._client.delete(path, headers=self._auth_headers())
+        resp.raise_for_status()
+
     async def _put(self, path: str, **kwargs) -> dict | list | None:
         if not self._token:
             await self._login()
@@ -97,6 +106,15 @@ class ApiClient:
 
     async def get_group_events(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/events")
+
+    async def create_event(self, group_id: int, data: dict) -> dict:
+        return await self._post(f"/api/v1/groups/{group_id}/events", json=data)
+
+    async def update_event(self, group_id: int, event_id: int, data: dict) -> dict:
+        return await self._put(f"/api/v1/groups/{group_id}/events/{event_id}", json=data)
+
+    async def delete_event(self, group_id: int, event_id: int) -> None:
+        await self._delete(f"/api/v1/groups/{group_id}/events/{event_id}")
 
     async def get_group_members(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/members")

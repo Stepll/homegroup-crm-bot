@@ -57,10 +57,6 @@ async def btn_stats(message: Message) -> None:
 
 
 
-@router.message(F.text == "Події домашки")
-async def btn_group_events(message: Message) -> None:
-    await message.answer("Розділ «Події домашки» — незабаром.")
-
 
 @router.message(F.text == "План")
 async def btn_plan(message: Message) -> None:
