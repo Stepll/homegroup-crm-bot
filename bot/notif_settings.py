@@ -1,30 +1,18 @@
-import json
-from pathlib import Path
-
-_FILE = Path("data/notif_settings.json")
+from bot.api_client import api_client
 
 KEYS = ["event_7days", "event_day", "conflict", "conflict_resolved", "attendance_ask"]
 DEFAULTS: dict[str, bool] = {k: True for k in KEYS}
 
 
-def _load_all() -> dict:
+async def get(group_id: int) -> dict[str, bool]:
     try:
-        return json.loads(_FILE.read_text())
+        return await api_client.get_notif_settings(group_id)
     except Exception:
-        return {}
+        return dict(DEFAULTS)
 
 
-def get(group_id: int) -> dict[str, bool]:
-    stored = _load_all().get(str(group_id), {})
-    return {**DEFAULTS, **{k: bool(v) for k, v in stored.items() if k in DEFAULTS}}
-
-
-def toggle(group_id: int, key: str) -> dict[str, bool]:
-    settings = get(group_id)
+async def toggle(group_id: int, key: str) -> dict[str, bool]:
+    settings = await get(group_id)
     if key in settings:
         settings[key] = not settings[key]
-    data = _load_all()
-    data[str(group_id)] = settings
-    _FILE.parent.mkdir(parents=True, exist_ok=True)
-    _FILE.write_text(json.dumps(data, indent=2))
-    return settings
+    return await api_client.update_notif_settings(group_id, settings)

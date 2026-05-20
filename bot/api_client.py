@@ -151,6 +151,24 @@ class ApiClient:
     async def send_plan_to_telegram(self, group_id: int, date: str) -> None:
         await self._post(f"/api/v1/groups/{group_id}/plans/date/{date}/send-to-telegram")
 
+    _NOTIF_FROM_API = {
+        "eventSevenDays": "event_7days",
+        "eventDay": "event_day",
+        "conflict": "conflict",
+        "conflictResolved": "conflict_resolved",
+        "attendanceAsk": "attendance_ask",
+    }
+    _NOTIF_TO_API = {v: k for k, v in _NOTIF_FROM_API.items()}
+
+    async def get_notif_settings(self, group_id: int) -> dict[str, bool]:
+        raw = await self._get(f"/api/v1/groups/{group_id}/notif-settings")
+        return {snake: bool(raw.get(camel, True)) for camel, snake in self._NOTIF_FROM_API.items()}
+
+    async def update_notif_settings(self, group_id: int, settings: dict[str, bool]) -> dict[str, bool]:
+        payload = {camel: settings.get(snake, True) for snake, camel in self._NOTIF_TO_API.items()}
+        raw = await self._put(f"/api/v1/groups/{group_id}/notif-settings", json=payload)
+        return {snake: bool(raw.get(camel, True)) for camel, snake in self._NOTIF_FROM_API.items()}
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

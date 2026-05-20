@@ -43,7 +43,7 @@ async def btn_notif(message: Message) -> None:
     if result is None:
         return
     _, group_id = result
-    settings = ns.get(group_id)
+    settings = await ns.get(group_id)
     await message.answer(
         _notif_text(settings),
         parse_mode="HTML",
@@ -60,7 +60,7 @@ async def cb_notif_toggle(callback: CallbackQuery) -> None:
     if key not in ns.KEYS:
         await callback.answer("Невідоме налаштування.", show_alert=True)
         return
-    settings = ns.toggle(group_id, key)
+    settings = await ns.toggle(group_id, key)
     await callback.message.edit_text(
         _notif_text(settings),
         parse_mode="HTML",

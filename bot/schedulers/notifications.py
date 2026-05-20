@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 
 from bot.api_client import api_client
+from bot import notif_settings as ns
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,14 @@ async def check_auto_attendance(bot: Bot) -> None:
         key = (group_id, today_str)
         if key in _triggered:
             continue
+
+        try:
+            settings = await ns.get(group_id)
+            if not settings.get("attendance_ask", True):
+                continue
+        except Exception:
+            pass
+
         _triggered.add(key)
 
         try:
@@ -140,8 +149,13 @@ async def notify_upcoming_events(bot: Bot) -> None:
             logger.exception("Failed to fetch events for group %s", group["id"])
             continue
 
-        today_events = [e["name"] for e in events if _event_matches(e, today)]
-        week_events = [e["name"] for e in events if _event_matches(e, in_7)]
+        try:
+            notif = await ns.get(group["id"])
+        except Exception:
+            notif = ns.DEFAULTS
+
+        today_events = [e["name"] for e in events if _event_matches(e, today)] if notif.get("event_day", True) else []
+        week_events = [e["name"] for e in events if _event_matches(e, in_7)] if notif.get("event_7days", True) else []
 
         lines: list[str] = []
         for name in today_events:
@@ -184,7 +198,12 @@ async def check_conflicts(bot: Bot, force: bool = False) -> None:
         current_state = _conflict_state.get(key)
 
         try:
-            if has_conflict and (current_state != "conflicted" or force):
+            notif = await ns.get(group["id"])
+        except Exception:
+            notif = ns.DEFAULTS
+
+        try:
+            if has_conflict and notif.get("conflict", True) and (current_state != "conflicted" or force):
                 names = ", ".join(c.get("title", "?") for c in conflicts)
                 await bot.send_message(
                     int(tg_id),
@@ -193,7 +212,7 @@ async def check_conflicts(bot: Bot, force: bool = False) -> None:
                 _conflict_state[key] = "conflicted"
                 _save_conflict_state()
 
-            elif not has_conflict and current_state == "conflicted":
+            elif not has_conflict and notif.get("conflict_resolved", True) and current_state == "conflicted":
                 await bot.send_message(
                     int(tg_id),
                     "✅ Все чисто — домашка більше ні з чим не перетинається",
