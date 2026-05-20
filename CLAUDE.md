@@ -21,7 +21,7 @@ homegroup-crm-telegrambot/
     config.py              — Settings (pydantic-settings, читає .env)
     api_client.py          — ApiClient: HTTP клієнт до бекенду з авто-реавторизацією
     keyboards.py           — private_main_keyboard() — головна ReplyKeyboard
-    notif_settings.py      — persistent JSON storage для toggles сповіщень (data/notif_settings.json)
+    notif_settings.py      — async API-делегат для toggles сповіщень (читає/записує через бекенд API)
     utils.py               — find_admin_by_telegram(username) → dict | None
     handlers/
       __init__.py
@@ -97,21 +97,24 @@ homegroup-crm-telegrambot/
 
 **help_handler.py** — 4 секції з back nav (`help_main`, `help_connect`, `help_private`, `help_leaders`, `help_contact`)
 
-**notif.py** — 5 toggles сповіщень (зберігаються в `data/notif_settings.json`):
+**notif.py** — 5 toggles сповіщень (зберігаються в бекенд API):
 - `event_7days`, `event_day`, `conflict`, `conflict_resolved`, `attendance_ask`
 - Кожен toggle: ✅/❌ в заголовку рядка в повідомленні + кнопка з коротким іменем
 
 ### Notification Settings (`bot/notif_settings.py`)
-Persistent storage у `data/notif_settings.json` (Docker volume `bot_data:/app/data`).
-- `get(group_id)` → `dict[str, bool]` (defaults all `True`)
-- `toggle(group_id, key)` → оновлює і повертає нові значення
+Делегує до бекенд API (`GET/PUT /groups/:id/notif-settings`). Локальний JSON-файл більше не використовується.
+- `get(group_id)` → `dict[str, bool]` (async, defaults all `True` при помилці)
+- `toggle(group_id, key)` → async get + flip + update, повертає нові значення
 
 ### Scheduler (`bot/schedulers/notifications.py`)
-Всі job-и в timezone `Europe/Kyiv`.
+Всі job-и в timezone `Europe/Kyiv`. Кожен job перевіряє відповідний toggle через `ns.get(group_id)`.
 
 - `check_auto_attendance` — щохвилини: якщо `meetingTime + 60 хв` (±3 хв) → тригерить attendance flow
+  (перевіряє `attendance_ask` toggle)
 - `notify_upcoming_events` — щодня о 09:00: події сьогодні + через 7 днів
+  (перевіряє `event_day` і `event_7days` toggles)
 - `check_conflicts` — щодня о 09:00: накладки домашки з іншими подіями, дедупліковано
+  (перевіряє `conflict` і `conflict_resolved` toggles)
 - `notify_meeting_plan` — щодня о 18:00 (TODO)
 
 ## Key Patterns
@@ -198,7 +201,7 @@ docker compose logs -f bot
 
 - [x] ApiClient з авто-реавторизацією (JWT, retry on 401)
 - [x] APScheduler з timezone Europe/Kyiv
-- [x] Docker деплой як сервіс в docker-compose бекенду, volume `bot_data` для notif_settings.json
+- [x] Docker деплой як сервіс в docker-compose бекенду
 - [x] При вступі в групу — надсилає chat ID для CRM
 - [x] /plan (груповий чат) — форматований план з @telegram lookup і футером
 - [x] /attendance — inline FSM: toggle members → guest count → summary → save
@@ -216,11 +219,12 @@ docker compose logs -f bot
   - [x] Очистити план (з підтвердженням)
   - [x] Відправити план у Telegram-групу
 - [x] Приватний чат: Допомога — 4 секції (підключення, приватний, лідери, контакт)
-- [x] Приватний чат: Сповіщення групи — 5 persistent toggles (JSON файл)
+- [x] Приватний чат: Сповіщення групи — 5 toggles (зберігаються в бекенд API через GET/PUT /groups/:id/notif-settings)
 - [x] WEBSITE_URL env var — відображається в розділі Допомога
+- [x] notif_settings.py делегує до бекенд API замість локального JSON-файлу
+- [x] Schedulers перевіряють відповідний toggle перед кожним типом сповіщення
 
 ## TODO
 
 - [ ] notify_meeting_plan — автоматична відправка плану в групу напередодні зустрічі
-- [ ] Використовувати notif_settings toggles в schedulers (зараз ігноруються)
 - [ ] Сповіщення лідеру якщо не відмічена присутність
