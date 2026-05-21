@@ -64,7 +64,6 @@ async def check_auto_attendance(bot: Bot) -> None:
 
     now = datetime.now(KYIV)
     today_str = now.strftime("%Y-%m-%d")
-    today_weekday = now.weekday()
     current_minutes = now.hour * 60 + now.minute
 
     try:
@@ -75,13 +74,13 @@ async def check_auto_attendance(bot: Bot) -> None:
 
     for group in groups:
         tg_id = group.get("telegramGroupId")
-        meeting_day = group.get("meetingDay")
         meeting_time = group.get("meetingTime")
-        if not tg_id or not meeting_day or not meeting_time:
+        next_meeting_date = group.get("nextMeetingDate")
+        if not tg_id or not meeting_time:
             continue
 
-        weekday = MEETING_DAY_MAP.get(meeting_day)
-        if weekday is None or weekday != today_weekday:
+        # Use nextMeetingDate (override-aware) instead of weekday matching
+        if not next_meeting_date or next_meeting_date != today_str:
             continue
 
         try:
