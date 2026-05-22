@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -50,6 +51,33 @@ def _format_date(date: str) -> str:
         return f"{d}.{m}.{y}"
     except Exception:
         return date
+
+
+_UKR_DAYS: dict[str, int] = {
+    "Неділя": 6, "Понеділок": 0, "Вівторок": 1, "Середа": 2,
+    "Четвер": 3, "Пʼятниця": 4, "П'ятниця": 4, "Субота": 5,
+}
+
+
+def _generate_past_dates(meeting_day: str | None, before_date: str, count: int) -> list[str]:
+    try:
+        anchor = date.fromisoformat(before_date)
+    except Exception:
+        return []
+    results = []
+    if meeting_day and meeting_day in _UKR_DAYS:
+        target_weekday = _UKR_DAYS[meeting_day]
+        # Go back week by week from before_date
+        d = anchor - timedelta(days=1)
+        while d.weekday() != target_weekday:
+            d -= timedelta(days=1)
+        for _ in range(count):
+            results.append(d.isoformat())
+            d -= timedelta(weeks=1)
+    else:
+        for i in range(1, count + 1):
+            results.append((anchor - timedelta(weeks=i)).isoformat())
+    return results
 
 
 def _build_members(raw_members: list) -> list[AttendanceMember]:
@@ -239,14 +267,25 @@ async def cb_date_pick(callback: CallbackQuery) -> None:
         await callback.answer("Сесія застаріла, запустіть /attendance знову.")
         return
 
+    past_dates: list[str] = []
     try:
         summary = await api_client.get_attendance_summary(session.group_id)
+        logger.info("Summary for group %s: %s", session.group_id, summary)
         past_dates = sorted(
             [s["meetingDate"] for s in summary if s["meetingDate"] < session.meeting_date],
             reverse=True,
         )[:4]
     except Exception:
-        past_dates = []
+        logger.exception("Failed to load attendance summary for group %s", session.group_id)
+
+    # Fallback: generate dates from meeting schedule if summary gave nothing
+    if not past_dates:
+        try:
+            group = await api_client.get_group(session.group_id)
+            meeting_day = group.get("meetingDay")
+            past_dates = _generate_past_dates(meeting_day, session.meeting_date, 4)
+        except Exception:
+            logger.exception("Failed to generate past dates for group %s", session.group_id)
 
     if not past_dates:
         await callback.answer("Немає минулих зустрічей.", show_alert=True)
