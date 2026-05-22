@@ -122,6 +122,12 @@ class ApiClient:
     async def get_group_members(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/members")
 
+    async def get_attendance(self, group_id: int, date: str) -> list:
+        return await self._get("/api/v1/attendance", params={"groupId": group_id, "from": date, "to": date})
+
+    async def get_attendance_summary(self, group_id: int) -> list:
+        return await self._get("/api/v1/attendance/summary", params={"groupId": group_id})
+
     async def record_attendance(
         self, group_id: int, meeting_date: str, entries: list[dict]
     ) -> None:

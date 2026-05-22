@@ -17,8 +17,6 @@ from bot.api_client import api_client
 router = Router()
 logger = logging.getLogger(__name__)
 
-SEPARATOR = "------------------"
-
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
@@ -36,32 +34,12 @@ class AttendanceSession:
     meeting_date: str
     members: list[AttendanceMember]
     message_id: int
-    state: str = "init"  # init | members | guests
-    selected_names: list[str] = field(default_factory=list)
+    state: str = "init"  # init | date_pick | members | guests
+    past_dates: list[str] = field(default_factory=list)
 
 
 # keyed by chat_id
 sessions: dict[int, AttendanceSession] = {}
-
-
-# ── Keyboards ─────────────────────────────────────────────────────────────────
-
-def _members_keyboard(members: list[AttendanceMember]) -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(
-            text=f"{'✅' if m.is_present else '◻️'} {m.display_name}",
-            callback_data=f"att_toggle_{i}",
-        )]
-        for i, m in enumerate(members)
-    ]
-    buttons.append([InlineKeyboardButton(text="Готово ✓", callback_data="att_done")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def _guests_keyboard() -> InlineKeyboardMarkup:
-    row1 = [InlineKeyboardButton(text=str(i), callback_data=f"att_guests_{i}") for i in range(6)]
-    row2 = [InlineKeyboardButton(text=str(i), callback_data=f"att_guests_{i}") for i in range(6, 11)]
-    return InlineKeyboardMarkup(inline_keyboard=[row1, row2])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,6 +50,41 @@ def _format_date(date: str) -> str:
         return f"{d}.{m}.{y}"
     except Exception:
         return date
+
+
+def _build_members(raw_members: list) -> list[AttendanceMember]:
+    members = []
+    for m in raw_members:
+        if m.get("isFormer"):
+            continue
+        name = m.get("name", "")
+        last = m.get("lastName") or ""
+        display = f"{name} {last}".strip()
+        person_id = None if m.get("isAdmin") else m["id"]
+        user_id = m.get("userId") if m.get("isAdmin") else None
+        members.append(AttendanceMember(display_name=display, person_id=person_id, user_id=user_id))
+    return members
+
+
+def _apply_existing_attendance(members: list[AttendanceMember], records: list) -> None:
+    present_person_ids = {r["personId"] for r in records if r.get("wasPresent") and r.get("personId")}
+    present_user_ids = {r["userId"] for r in records if r.get("wasPresent") and r.get("userId")}
+    for m in members:
+        if m.person_id is not None and m.person_id in present_person_ids:
+            m.is_present = True
+        elif m.user_id is not None and m.user_id in present_user_ids:
+            m.is_present = True
+
+
+async def _load_members_for_date(group_id: int, date: str) -> list[AttendanceMember]:
+    raw_members = await api_client.get_group_members(group_id)
+    members = _build_members(raw_members)
+    try:
+        records = await api_client.get_attendance(group_id, date)
+        _apply_existing_attendance(members, records)
+    except Exception:
+        logger.warning("Could not load existing attendance for group %s date %s", group_id, date)
+    return members
 
 
 def _members_text(session: AttendanceSession) -> str:
@@ -97,28 +110,64 @@ def _summary_text(session: AttendanceSession, guest_count: int) -> str:
     return "\n".join(lines)
 
 
-# ── Shared entry point (used by command + scheduler) ──────────────────────────
+# ── Keyboards ─────────────────────────────────────────────────────────────────
+
+def _initial_keyboard(meeting_date: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"✅ Відмітити за {_format_date(meeting_date)}",
+            callback_data="att_date_today",
+        )],
+        [InlineKeyboardButton(text="📅 Відмітити за минулу дату", callback_data="att_date_pick")],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="att_cancel")],
+    ])
+
+
+def _date_pick_keyboard(past_dates: list[str]) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=_format_date(d), callback_data=f"att_pastdate_{d}")]
+        for d in past_dates
+    ]
+    buttons.append([InlineKeyboardButton(text="❌ Скасувати", callback_data="att_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _members_keyboard(members: list[AttendanceMember]) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"{'✅' if m.is_present else '◻️'} {m.display_name}",
+            callback_data=f"att_toggle_{i}",
+        )]
+        for i, m in enumerate(members)
+    ]
+    buttons.append([
+        InlineKeyboardButton(text="Готово ✓", callback_data="att_done"),
+        InlineKeyboardButton(text="❌ Скасувати", callback_data="att_cancel"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _guests_keyboard() -> InlineKeyboardMarkup:
+    row1 = [InlineKeyboardButton(text=str(i), callback_data=f"att_guests_{i}") for i in range(6)]
+    row2 = [InlineKeyboardButton(text=str(i), callback_data=f"att_guests_{i}") for i in range(6, 11)]
+    cancel_row = [InlineKeyboardButton(text="❌ Скасувати", callback_data="att_cancel")]
+    return InlineKeyboardMarkup(inline_keyboard=[row1, row2, cancel_row])
+
+
+# ── Entry point (used by command + scheduler) ─────────────────────────────────
 
 async def start_attendance_flow(
     bot: Bot, group_id: int, telegram_group_id: str, meeting_date: str
 ) -> None:
-    raw_members = await api_client.get_group_members(group_id)
-    members = []
-    for m in raw_members:
-        name = m.get("name", "")
-        last = m.get("lastName") or ""
-        display = f"{name} {last}".strip()
-        person_id = None if m.get("isAdmin") else m["id"]
-        user_id = m.get("userId") if m.get("isAdmin") else None
-        members.append(AttendanceMember(display_name=display, person_id=person_id, user_id=user_id))
-
     chat_id = int(telegram_group_id)
+
+    raw_members = await api_client.get_group_members(group_id)
+    members = _build_members(raw_members)
+
     msg = await bot.send_message(
         chat_id,
         f"Відмітка присутніх за {_format_date(meeting_date)}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Відмітити присутніх", callback_data="att_start"),
-        ]]),
+        reply_markup=_initial_keyboard(meeting_date),
     )
     sessions[chat_id] = AttendanceSession(
         group_id=group_id,
@@ -149,14 +198,31 @@ async def cmd_attendance(message: Message, bot: Bot) -> None:
     await start_attendance_flow(bot, group["id"], chat_id, meeting_date)
 
 
-# ── Callback handlers ─────────────────────────────────────────────────────────
+# ── Cancel ────────────────────────────────────────────────────────────────────
 
-@router.callback_query(F.data == "att_start")
-async def cb_start(callback: CallbackQuery) -> None:
-    session = sessions.get(callback.message.chat.id)
+@router.callback_query(F.data == "att_cancel")
+async def cb_cancel(callback: CallbackQuery) -> None:
+    sessions.pop(callback.message.chat.id, None)
+    await callback.message.delete()
+    await callback.answer()
+
+
+# ── Date selection ────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "att_date_today")
+async def cb_date_today(callback: CallbackQuery) -> None:
+    chat_id = callback.message.chat.id
+    session = sessions.get(chat_id)
     if not session:
         await callback.answer("Сесія застаріла, запустіть /attendance знову.")
         return
+
+    try:
+        records = await api_client.get_attendance(session.group_id, session.meeting_date)
+        _apply_existing_attendance(session.members, records)
+    except Exception:
+        logger.warning("Could not load existing attendance for group %s", session.group_id)
+
     session.state = "members"
     await callback.message.edit_text(
         _members_text(session),
@@ -164,6 +230,58 @@ async def cb_start(callback: CallbackQuery) -> None:
     )
     await callback.answer()
 
+
+@router.callback_query(F.data == "att_date_pick")
+async def cb_date_pick(callback: CallbackQuery) -> None:
+    chat_id = callback.message.chat.id
+    session = sessions.get(chat_id)
+    if not session:
+        await callback.answer("Сесія застаріла, запустіть /attendance знову.")
+        return
+
+    try:
+        summary = await api_client.get_attendance_summary(session.group_id)
+        past_dates = sorted(
+            [s["meetingDate"] for s in summary if s["meetingDate"] < session.meeting_date],
+            reverse=True,
+        )[:4]
+    except Exception:
+        past_dates = []
+
+    if not past_dates:
+        await callback.answer("Немає минулих зустрічей.", show_alert=True)
+        return
+
+    session.state = "date_pick"
+    session.past_dates = past_dates
+    await callback.message.edit_text(
+        "Оберіть дату:",
+        reply_markup=_date_pick_keyboard(past_dates),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("att_pastdate_"))
+async def cb_past_date(callback: CallbackQuery) -> None:
+    chat_id = callback.message.chat.id
+    session = sessions.get(chat_id)
+    if not session or session.state != "date_pick":
+        await callback.answer()
+        return
+
+    date = callback.data[len("att_pastdate_"):]
+    session.meeting_date = date
+    session.members = await _load_members_for_date(session.group_id, date)
+    session.state = "members"
+
+    await callback.message.edit_text(
+        _members_text(session),
+        reply_markup=_members_keyboard(session.members),
+    )
+    await callback.answer()
+
+
+# ── Member toggling ───────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("att_toggle_"))
 async def cb_toggle(callback: CallbackQuery) -> None:
@@ -193,6 +311,8 @@ async def cb_done(callback: CallbackQuery) -> None:
     )
     await callback.answer()
 
+
+# ── Guest count + save ────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("att_guests_"))
 async def cb_guests(callback: CallbackQuery) -> None:
