@@ -67,6 +67,8 @@ homegroup-crm-telegrambot/
 - `get_group_events(group_id)`, `create_event(group_id, data)`, `update_event(group_id, event_id, data)`, `delete_event(group_id, event_id)`
 - `get_group_stats(group_id, period)`
 - `record_attendance(...)`, `save_attendance_meta(...)`
+- `get_attendance(group_id, date)` → AttendanceResponse[] (для pre-load існуючих відміток)
+- `get_attendance_summary(group_id)` → AttendanceSummary[] (для списку минулих дат)
 - `skip_meeting(group_id)`, `set_next_meeting(group_id, date)`
 
 ### Main Keyboard (`bot/keyboards.py`)
@@ -109,8 +111,11 @@ homegroup-crm-telegrambot/
 ### Scheduler (`bot/schedulers/notifications.py`)
 Всі job-и в timezone `Europe/Kyiv`. Кожен job перевіряє відповідний toggle через `ns.get(group_id)`.
 
-- `check_auto_attendance` — щохвилини: якщо `meetingTime + 60 хв` (±3 хв) → тригерить attendance flow
-  (перевіряє `attendance_ask` toggle)
+- `check_auto_attendance` — щохвилини: викликає `get_cabinet` і перевіряє чи
+  `prevScheduledMeetingDate == today`; якщо так і `meetingTime + 60 хв` (±3 хв) →
+  тригерить attendance flow (перевіряє `attendance_ask` toggle).
+  **Важливо**: раніше використовували `nextMeetingDate == today`, але за 1 годину після
+  початку зустріч вже в минулому за розкладом і `nextMeeting` показує наступний тиждень.
 - `notify_upcoming_events` — щодня о 09:00: події сьогодні + через 7 днів
   (перевіряє `event_day` і `event_7days` toggles)
 - `check_conflicts` — щодня о 09:00: накладки домашки з іншими подіями, дедупліковано
@@ -223,6 +228,16 @@ docker compose logs -f bot
 - [x] WEBSITE_URL env var — відображається в розділі Допомога
 - [x] notif_settings.py делегує до бекенд API замість локального JSON-файлу
 - [x] Schedulers перевіряють відповідний toggle перед кожним типом сповіщення
+- [x] /attendance flow редизайн — 3-кнопкове меню: "Відмітити за [date]" /
+      "Відмітити за минулу дату" / "Скасувати"
+      - Опція 1 (поточна дата): pre-load існуючої відвідуваності, pre-check вже присутніх
+      - Опція 2: 4 минулих дати з summary; вибір → pre-load + редагування
+      - Cancel кнопка на кожному кроці видаляє повідомлення
+      - Filter out former group members (isFormer=true)
+- [x] check_auto_attendance використовує `prevScheduledMeetingDate == today` замість
+      `nextMeetingDate == today` (бо за час трига зустріч вже в минулому за розкладом)
+- [x] Manual /attendance команда — пріоритет `prevScheduledMeetingDate` над
+      `lastMeetingDate` (інакше пропонує дату тижні тому якщо за вчора нічого не відмічено)
 
 ## TODO
 
