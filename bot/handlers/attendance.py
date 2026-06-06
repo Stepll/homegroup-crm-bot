@@ -218,7 +218,11 @@ async def cmd_attendance(message: Message, bot: Bot) -> None:
         return
 
     cabinet = await api_client.get_cabinet(group["id"])
-    meeting_date = cabinet.get("lastMeetingDate") or cabinet.get("prevScheduledMeetingDate")
+    # Prefer the most recent SCHEDULED meeting (computed from meetingDay + override),
+    # fallback to last meeting with attendance records.
+    # Otherwise, if a recent meeting happened but nothing was marked yet,
+    # the bot would suggest a date from weeks ago.
+    meeting_date = cabinet.get("prevScheduledMeetingDate") or cabinet.get("lastMeetingDate")
     if not meeting_date:
         await message.answer("Немає дати зустрічі.")
         return

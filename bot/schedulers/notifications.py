@@ -75,12 +75,18 @@ async def check_auto_attendance(bot: Bot) -> None:
     for group in groups:
         tg_id = group.get("telegramGroupId")
         meeting_time = group.get("meetingTime")
-        next_meeting_date = group.get("nextMeetingDate")
         if not tg_id or not meeting_time:
             continue
 
-        # Use nextMeetingDate (override-aware) instead of weekday matching
-        if not next_meeting_date or next_meeting_date != today_str:
+        # Auto-attendance fires AFTER the meeting (meetingTime + 60 min).
+        # By that point the schedule already shows nextMeeting=next week and
+        # prevScheduledMeeting=today. So we check prevScheduledMeetingDate.
+        try:
+            cabinet = await api_client.get_cabinet(group["id"])
+        except Exception:
+            continue
+        prev_meeting_date = cabinet.get("prevScheduledMeetingDate")
+        if not prev_meeting_date or prev_meeting_date != today_str:
             continue
 
         try:
