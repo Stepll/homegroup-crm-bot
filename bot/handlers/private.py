@@ -35,7 +35,7 @@ async def btn_attendance(message: Message, bot: Bot) -> None:
     _, group_id = result
 
     cabinet = await api_client.get_cabinet(group_id)
-    meeting_date = cabinet.get("lastMeetingDate") or cabinet.get("prevScheduledMeetingDate")
+    meeting_date = cabinet.get("prevScheduledMeetingDate") or cabinet.get("lastMeetingDate")
     if not meeting_date:
         await message.answer("Немає дати зустрічі для вашої групи.")
         return
