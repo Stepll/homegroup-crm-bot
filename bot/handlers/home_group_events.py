@@ -103,6 +103,7 @@ def _main_kb(group_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Створити", callback_data=f"ge_create_{group_id}"),
             InlineKeyboardButton(text="Редагувати", callback_data=f"ge_elist_{group_id}"),
         ],
+        [InlineKeyboardButton(text="← Домашка", callback_data="hg_overview")],
     ])
 
 

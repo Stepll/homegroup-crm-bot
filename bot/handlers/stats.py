@@ -77,7 +77,11 @@ def _keyboard(group_id: int, period: str, page: int) -> InlineKeyboardMarkup:
             callback_data=_cb(group_id, period, 1),
         )
 
-    return InlineKeyboardMarkup(inline_keyboard=[period_row, [nav]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        period_row,
+        [nav],
+        [InlineKeyboardButton(text="← Домашка", callback_data="hg_overview")],
+    ])
 
 
 async def _render(

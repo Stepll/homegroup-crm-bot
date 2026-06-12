@@ -122,6 +122,12 @@ class ApiClient:
     async def get_group_members(self, group_id: int) -> list:
         return await self._get(f"/api/v1/groups/{group_id}/members")
 
+    async def get_group_needs(self, group_id: int) -> list:
+        return await self._get(f"/api/v1/groups/{group_id}/needs")
+
+    async def update_need(self, group_id: int, need_id: int, payload: dict) -> dict:
+        return await self._put(f"/api/v1/groups/{group_id}/needs/{need_id}", json=payload)
+
     async def get_attendance(self, group_id: int, date: str) -> list:
         return await self._get("/api/v1/attendance", params={"groupId": group_id, "from": date, "to": date})
 

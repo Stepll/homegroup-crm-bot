@@ -126,8 +126,16 @@ def _overview_text(cabinet: dict) -> str:
     return "\n".join(lines)
 
 
-def _overview_kb() -> InlineKeyboardMarkup:
+def _overview_kb(group_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Статистика", callback_data=f"st_{group_id}_3m_1"),
+            InlineKeyboardButton(text="Наступна домашка", callback_data="hg_next"),
+        ],
+        [
+            InlineKeyboardButton(text="Учасники", callback_data=f"hg_members_{group_id}"),
+            InlineKeyboardButton(text="Події домашки", callback_data=f"ge_main_{group_id}"),
+        ],
         [InlineKeyboardButton(text="Налаштування", callback_data="hg_settings")],
     ])
 
@@ -140,7 +148,7 @@ async def btn_home_group(message: Message, state: FSMContext) -> None:
         return
     _, group_id = result
     cabinet = await api_client.get_cabinet(group_id)
-    await message.answer(_overview_text(cabinet), parse_mode="HTML", reply_markup=_overview_kb())
+    await message.answer(_overview_text(cabinet), parse_mode="HTML", reply_markup=_overview_kb(group_id))
 
 
 @router.callback_query(F.data == "hg_overview")
@@ -152,7 +160,7 @@ async def cb_overview(callback: CallbackQuery, state: FSMContext) -> None:
     _, group_id = result
     cabinet = await api_client.get_cabinet(group_id)
     await callback.message.edit_text(
-        _overview_text(cabinet), parse_mode="HTML", reply_markup=_overview_kb()
+        _overview_text(cabinet), parse_mode="HTML", reply_markup=_overview_kb(group_id)
     )
     await callback.answer()
 
@@ -352,6 +360,7 @@ def _next_meeting_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Пропустити", callback_data="hg_skip"),
             InlineKeyboardButton(text="Перенести", callback_data="hg_reschedule"),
         ],
+        [InlineKeyboardButton(text="← Домашка", callback_data="hg_overview")],
     ])
 
 

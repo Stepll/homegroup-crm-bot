@@ -5,7 +5,6 @@ from aiogram.types import Message
 
 from bot.api_client import api_client
 from bot.handlers.attendance import start_attendance_flow
-from bot.handlers.stats import _keyboard, _page1_text
 from bot.utils import find_admin_by_telegram
 
 router = Router()
@@ -42,18 +41,6 @@ async def btn_attendance(message: Message, bot: Bot) -> None:
         return
 
     await start_attendance_flow(bot, group_id, str(message.chat.id), meeting_date)
-
-
-@router.message(F.text == "Статистика")
-async def btn_stats(message: Message) -> None:
-    result = await _get_admin_group(message)
-    if result is None:
-        return
-    _, group_id = result
-
-    period = "3m"
-    stats = await api_client.get_group_stats(group_id, period)
-    await message.answer(_page1_text(stats, period), reply_markup=_keyboard(group_id, period, 1))
 
 
 
