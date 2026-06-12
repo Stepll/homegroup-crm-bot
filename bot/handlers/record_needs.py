@@ -20,7 +20,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
-from bot.config import settings
 from bot.utils import find_admin_by_telegram
 
 router = Router()
@@ -97,7 +96,7 @@ async def _build_candidates(group_id: int, meeting_date: str) -> tuple[list[dict
             if not in_present:
                 continue
         full = f"{m.get('name') or ''} {m.get('lastName') or ''}".strip() or "—"
-        out.append({"tc": tc, "id": mid, "name": full})
+        out.append({"tc": tc, "id": mid, "name": full, "telegram": m.get("telegram") or ""})
 
     out.sort(key=lambda c: c["name"].lower())
     return out, has_attendance
@@ -130,7 +129,10 @@ def _picker_kb(sid: str, candidates: list[dict], recorded_keys: set[tuple]) -> I
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton(text="Готово", callback_data=f"rn_dn_{sid}")])
+    rows.append([
+        InlineKeyboardButton(text="Скасувати", callback_data=f"rn_can_{sid}"),
+        InlineKeyboardButton(text="Готово", callback_data=f"rn_dn_{sid}"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -332,16 +334,20 @@ async def cb_pick(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     data = await state.get_data()
-    name = next(
-        (c["name"] for c in data.get("candidates", []) if c["tc"] == tc and c["id"] == mid),
+    candidate = next(
+        (c for c in data.get("candidates", []) if c["tc"] == tc and c["id"] == mid),
         None,
     )
-    if name is None:
+    if candidate is None:
         await callback.answer("Невідомий учасник.", show_alert=True)
         return
 
+    name = candidate["name"]
     await state.set_state(RecordNeedsStates.waiting_need_text)
-    await state.update_data(current_pick={"tc": tc, "id": mid, "name": name})
+    await state.update_data(current_pick={
+        "tc": tc, "id": mid, "name": name,
+        "telegram": candidate.get("telegram") or "",
+    })
 
     await callback.message.edit_text(
         f"<b>Введіть потребу для {html.escape(name)}:</b>",
@@ -389,7 +395,7 @@ async def receive_guest_name(message: Message, state: FSMContext, bot: Bot) -> N
         return
 
     await state.set_state(RecordNeedsStates.waiting_need_text)
-    await state.update_data(current_pick={"tc": "g", "id": None, "name": name})
+    await state.update_data(current_pick={"tc": "g", "id": None, "name": name, "telegram": ""})
     await bot.edit_message_text(
         chat_id=chat_id, message_id=msg_id,
         text=f"<b>Введіть потребу для {html.escape(name)}:</b>",
@@ -437,6 +443,7 @@ async def receive_need_text(message: Message, state: FSMContext, bot: Bot) -> No
         "tc": current["tc"],
         "id": current["id"],
         "name": current["name"],
+        "telegram": current.get("telegram") or "",
         "description": text,
     })
 
@@ -511,30 +518,30 @@ def _build_report(meeting_date: str | None, recorded: list[dict]) -> str:
     if not recorded:
         return f"{header}\n\nПотреби не записано"
 
-    grouped: dict[tuple[str, str, int | None], list[str]] = {}
+    grouped_descs: dict[tuple[str, str, int | None], list[str]] = {}
+    telegrams: dict[tuple[str, str, int | None], str] = {}
     order: list[tuple[str, str, int | None]] = []
     for r in recorded:
         key = (r["tc"], r["name"], r["id"])
-        if key not in grouped:
-            grouped[key] = []
+        if key not in grouped_descs:
+            grouped_descs[key] = []
+            telegrams[key] = r.get("telegram") or ""
             order.append(key)
-        grouped[key].append(r["description"])
-
-    base_url = settings.website_url.rstrip("/") if settings.website_url else ""
+        grouped_descs[key].append(r["description"])
 
     lines = [header, ""]
-    for tc, name, mid in order:
-        descs = "; ".join(grouped[(tc, name, mid)])
+    for key in order:
+        tc, name, _ = key
+        descs = "; ".join(grouped_descs[key])
         if tc == "g":
             label = f"{html.escape(name)} (гість)"
-        elif tc == "p" and base_url:
-            url = f"{base_url}/people/{mid}"
-            label = f'<a href="{html.escape(url)}">{html.escape(name)}</a>'
-        elif tc == "u" and base_url:
-            url = f"{base_url}/admins/{mid}"
-            label = f'<a href="{html.escape(url)}">{html.escape(name)}</a>'
         else:
-            label = html.escape(name)
+            tg = telegrams[key].lstrip("@").strip()
+            if tg:
+                url = f"https://t.me/{tg}"
+                label = f'<a href="{html.escape(url)}">{html.escape(name)}</a>'
+            else:
+                label = html.escape(name)
         lines.append(f"• {label} — {html.escape(descs)}")
 
     return "\n".join(lines)
