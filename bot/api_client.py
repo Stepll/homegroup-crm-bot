@@ -128,6 +128,9 @@ class ApiClient:
     async def update_need(self, group_id: int, need_id: int, payload: dict) -> dict:
         return await self._put(f"/api/v1/groups/{group_id}/needs/{need_id}", json=payload)
 
+    async def create_need(self, group_id: int, payload: dict) -> dict:
+        return await self._post(f"/api/v1/groups/{group_id}/needs", json=payload)
+
     async def get_attendance(self, group_id: int, date: str) -> list:
         return await self._get("/api/v1/attendance", params={"groupId": group_id, "from": date, "to": date})
 
@@ -169,6 +172,7 @@ class ApiClient:
         "conflict": "conflict",
         "conflictResolved": "conflict_resolved",
         "attendanceAsk": "attendance_ask",
+        "needsRecordingAsk": "needs_recording_ask",
     }
     _NOTIF_TO_API = {v: k for k, v in _NOTIF_FROM_API.items()}
 

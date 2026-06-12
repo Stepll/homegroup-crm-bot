@@ -229,6 +229,64 @@ async def check_conflicts(bot: Bot, force: bool = False) -> None:
             logger.exception("Failed to send conflict notification to %s", tg_id)
 
 
+async def check_record_needs_prompt(bot: Bot) -> None:
+    """Send "Записати потреби" prompt to leader chat 30 min before meetingEndTime."""
+    from bot.handlers.record_needs import send_record_needs_prompt
+
+    now = datetime.now(KYIV)
+    today_str = now.strftime("%Y-%m-%d")
+    current_minutes = now.hour * 60 + now.minute
+
+    try:
+        groups = await api_client.get_groups()
+    except Exception:
+        logger.exception("check_record_needs_prompt: failed to fetch groups")
+        return
+
+    for group in groups:
+        tg_id = group.get("telegramGroupId")
+        end_time = group.get("meetingEndTime")
+        if not tg_id or not end_time:
+            continue
+
+        try:
+            cabinet = await api_client.get_cabinet(group["id"])
+        except Exception:
+            continue
+        prev_meeting_date = cabinet.get("prevScheduledMeetingDate")
+        if not prev_meeting_date or prev_meeting_date != today_str:
+            continue
+
+        try:
+            h, m = map(int, end_time.split(":"))
+        except Exception:
+            continue
+
+        trigger_minutes = h * 60 + m - 30
+        if abs(current_minutes - trigger_minutes) > 2:
+            continue
+
+        group_id = group["id"]
+        key = (group_id, f"needs:{today_str}")
+        if key in _triggered:
+            continue
+
+        try:
+            settings = await ns.get(group_id)
+            if not settings.get("needs_recording_ask", True):
+                continue
+        except Exception:
+            pass
+
+        _triggered.add(key)
+
+        try:
+            await send_record_needs_prompt(bot, int(tg_id))
+            logger.info("Record needs prompt sent for group %s on %s", group_id, today_str)
+        except Exception:
+            logger.exception("Failed to send record needs prompt for group %s", group_id)
+
+
 async def notify_meeting_plan(bot: Bot) -> None:
     # TODO: send plan day before meeting
     logger.info("notify_meeting_plan triggered")
@@ -270,4 +328,12 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot) -> None:
         minute=0,
         kwargs={"bot": bot},
         id="notify_meeting_plan",
+    )
+    # Record needs prompt — check every minute, fires 30 min before meetingEndTime
+    scheduler.add_job(
+        check_record_needs_prompt,
+        trigger="cron",
+        minute="*",
+        kwargs={"bot": bot},
+        id="check_record_needs_prompt",
     )

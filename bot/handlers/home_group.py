@@ -136,6 +136,7 @@ def _overview_kb(group_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Учасники", callback_data=f"hg_members_{group_id}"),
             InlineKeyboardButton(text="Події домашки", callback_data=f"ge_main_{group_id}"),
         ],
+        [InlineKeyboardButton(text="Записати потреби", callback_data="hg_record_needs")],
         [InlineKeyboardButton(text="Налаштування", callback_data="hg_settings")],
     ])
 

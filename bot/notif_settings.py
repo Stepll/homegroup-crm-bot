@@ -1,6 +1,6 @@
 from bot.api_client import api_client
 
-KEYS = ["event_7days", "event_day", "conflict", "conflict_resolved", "attendance_ask"]
+KEYS = ["event_7days", "event_day", "conflict", "conflict_resolved", "attendance_ask", "needs_recording_ask"]
 DEFAULTS: dict[str, bool] = {k: True for k in KEYS}
 
 
