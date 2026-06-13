@@ -233,17 +233,47 @@ def _member_picker_kb(members: list) -> InlineKeyboardMarkup:
 @router.message(F.text == "Додати потребу")
 async def btn_add_need(message: Message, state: FSMContext) -> None:
     await state.clear()
-    result = await _get_admin_group(message)
-    if result is None:
+    username = message.from_user.username if message.from_user else None
+    if not username:
+        await message.answer("У вас не встановлений @username у Telegram.")
         return
-    _, group_id = result
 
-    sent = await message.answer(
-        _ADD_NEED_PROMPT,
-        parse_mode="HTML",
-        reply_markup=_add_start_kb(),
+    # Admin → picker flow (member/guest)
+    admin = await find_admin_by_telegram(username)
+    if admin is not None:
+        group_id = admin.get("primaryGroupId")
+        if not group_id:
+            await message.answer("У вас не вказана основна група в CRM.")
+            return
+        sent = await message.answer(
+            _ADD_NEED_PROMPT,
+            parse_mode="HTML",
+            reply_markup=_add_start_kb(),
+        )
+        await state.update_data(group_id=group_id, msg_id=sent.message_id)
+        return
+
+    # Member → straight to text input, subject = self
+    person = await find_person_by_telegram(username)
+    if person is None:
+        await message.answer("Ваш акаунт не знайдено в CRM.")
+        return
+    group_id = person.get("primaryGroupId")
+    if not group_id:
+        await message.answer("У вас не вказана основна група в CRM.")
+        return
+
+    full_name = f"{person.get('name') or ''} {person.get('lastName') or ''}".strip() or "—"
+    sent = await message.answer("<b>Введіть текст вашої потреби:</b>", parse_mode="HTML")
+    await state.set_state(AddNeedStates.waiting_need_text)
+    await state.update_data(
+        group_id=group_id,
+        msg_id=sent.message_id,
+        member_type="self",
+        subject_name=full_name,
+        person_id=person["id"],
+        user_id=None,
     )
-    await state.update_data(group_id=group_id, msg_id=sent.message_id)
 
 
 @router.callback_query(F.data == "addn_back_start")

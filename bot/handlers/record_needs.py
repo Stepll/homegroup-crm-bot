@@ -17,7 +17,7 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
 from bot.utils import find_admin_by_telegram
@@ -136,10 +136,22 @@ def _picker_kb(sid: str, candidates: list[dict], recorded_keys: set[tuple]) -> I
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _back_kb(sid: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="← Назад", callback_data=f"rn_bk_{sid}")],
-    ])
+def _force_reply(placeholder: str) -> ForceReply:
+    # selective so only the starter sees the reply prompt (group chats);
+    # bypasses bot privacy mode because the user's reply targets the bot.
+    return ForceReply(selective=True, input_field_placeholder=placeholder)
+
+
+async def _clear_prompt(bot: Bot, chat_id: int, state: FSMContext) -> None:
+    """Delete any pending ForceReply prompt message tracked in FSM data."""
+    data = await state.get_data()
+    pmsg = data.get("prompt_msg_id")
+    if pmsg:
+        try:
+            await bot.delete_message(chat_id, pmsg)
+        except Exception:
+            pass
+        await state.update_data(prompt_msg_id=None)
 
 
 def _picker_text(meeting_date: str | None, has_attendance: bool) -> str:
@@ -245,6 +257,7 @@ async def cb_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> Non
     if not await _check_starter(callback, state):
         await callback.answer("Тільки той хто розпочав може закрити.", show_alert=True)
         return
+    await _clear_prompt(bot, callback.message.chat.id, state)
     try:
         await bot.delete_message(callback.message.chat.id, callback.message.message_id)
     except Exception:
@@ -322,7 +335,7 @@ async def cb_start(callback: CallbackQuery, state: FSMContext) -> None:
 # ── Pick member / guest / back / done ──────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("rn_pk_"))
-async def cb_pick(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_pick(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     parts = callback.data.split("_")
     # rn_pk_{sid}_{tc}_{id}
     sid, tc, mid = parts[2], parts[3], int(parts[4])
@@ -342,23 +355,28 @@ async def cb_pick(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Невідомий учасник.", show_alert=True)
         return
 
-    name = candidate["name"]
-    await state.set_state(RecordNeedsStates.waiting_need_text)
-    await state.update_data(current_pick={
-        "tc": tc, "id": mid, "name": name,
-        "telegram": candidate.get("telegram") or "",
-    })
+    chat_id = callback.message.chat.id
+    await _clear_prompt(bot, chat_id, state)
 
-    await callback.message.edit_text(
-        f"<b>Введіть потребу для {html.escape(name)}:</b>",
-        parse_mode="HTML",
-        reply_markup=_back_kb(sid),
+    name = candidate["name"]
+    prompt = await bot.send_message(
+        chat_id,
+        f"Введіть потребу для {name}:",
+        reply_markup=_force_reply("Текст потреби…"),
+    )
+    await state.set_state(RecordNeedsStates.waiting_need_text)
+    await state.update_data(
+        current_pick={
+            "tc": tc, "id": mid, "name": name,
+            "telegram": candidate.get("telegram") or "",
+        },
+        prompt_msg_id=prompt.message_id,
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("rn_gu_"))
-async def cb_guest(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_guest(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     sid = callback.data.split("_", 2)[2]
     if not _check_session(callback, sid):
         await callback.answer("Цей запис вже завершено.", show_alert=True)
@@ -367,12 +385,15 @@ async def cb_guest(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Тільки той хто розпочав запис може додавати потреби.", show_alert=True)
         return
 
-    await state.set_state(RecordNeedsStates.waiting_guest_name)
-    await callback.message.edit_text(
-        "<b>Введіть імʼя гостя:</b>",
-        parse_mode="HTML",
-        reply_markup=_back_kb(sid),
+    chat_id = callback.message.chat.id
+    await _clear_prompt(bot, chat_id, state)
+
+    prompt = await bot.send_message(
+        chat_id, "Введіть імʼя гостя:",
+        reply_markup=_force_reply("Імʼя гостя…"),
     )
+    await state.set_state(RecordNeedsStates.waiting_guest_name)
+    await state.update_data(prompt_msg_id=prompt.message_id)
     await callback.answer()
 
 
@@ -381,26 +402,26 @@ async def receive_guest_name(message: Message, state: FSMContext, bot: Bot) -> N
     data = await state.get_data()
     if message.from_user.id != data.get("starter_user_id"):
         return
-    msg_id = data.get("msg_id")
     chat_id = data.get("chat_id") or message.chat.id
-    sid = data.get("sid")
 
+    await _clear_prompt(bot, chat_id, state)
     try:
         await bot.delete_message(message.chat.id, message.message_id)
     except Exception:
         pass
 
     name = (message.text or "").strip()
-    if not name or not msg_id or not sid:
+    if not name:
         return
 
+    prompt = await bot.send_message(
+        chat_id, f"Введіть потребу для {name}:",
+        reply_markup=_force_reply("Текст потреби…"),
+    )
     await state.set_state(RecordNeedsStates.waiting_need_text)
-    await state.update_data(current_pick={"tc": "g", "id": None, "name": name, "telegram": ""})
-    await bot.edit_message_text(
-        chat_id=chat_id, message_id=msg_id,
-        text=f"<b>Введіть потребу для {html.escape(name)}:</b>",
-        parse_mode="HTML",
-        reply_markup=_back_kb(sid),
+    await state.update_data(
+        current_pick={"tc": "g", "id": None, "name": name, "telegram": ""},
+        prompt_msg_id=prompt.message_id,
     )
 
 
@@ -418,6 +439,7 @@ async def receive_need_text(message: Message, state: FSMContext, bot: Bot) -> No
     has_attendance = bool(data.get("has_attendance", True))
     meeting_date = data.get("meeting_date")
 
+    await _clear_prompt(bot, chat_id, state)
     try:
         await bot.delete_message(message.chat.id, message.message_id)
     except Exception:
@@ -459,36 +481,8 @@ async def receive_need_text(message: Message, state: FSMContext, bot: Bot) -> No
     )
 
 
-@router.callback_query(F.data.startswith("rn_bk_"))
-async def cb_back(callback: CallbackQuery, state: FSMContext) -> None:
-    sid = callback.data.split("_", 2)[2]
-    if not _check_session(callback, sid):
-        await callback.answer("Цей запис вже завершено.", show_alert=True)
-        return
-    if not await _check_starter(callback, state):
-        await callback.answer("Тільки той хто розпочав запис.", show_alert=True)
-        return
-
-    data = await state.get_data()
-    candidates = data.get("candidates", [])
-    recorded = data.get("recorded", [])
-    has_attendance = bool(data.get("has_attendance", True))
-    meeting_date = data.get("meeting_date")
-    recorded_keys = {(r["tc"], r["id"]) for r in recorded if r["tc"] in ("p", "u")}
-
-    await state.set_state(state=None)
-    await state.update_data(current_pick=None)
-
-    await callback.message.edit_text(
-        _picker_text(meeting_date, has_attendance),
-        parse_mode="HTML",
-        reply_markup=_picker_kb(sid, candidates, recorded_keys),
-    )
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("rn_dn_"))
-async def cb_done(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_done(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     sid = callback.data.split("_", 2)[2]
     if not _check_session(callback, sid):
         await callback.answer("Цей запис вже завершено.", show_alert=True)
@@ -500,6 +494,8 @@ async def cb_done(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     meeting_date = data.get("meeting_date")
     recorded = data.get("recorded", [])
+
+    await _clear_prompt(bot, callback.message.chat.id, state)
 
     report_text = _build_report(meeting_date, recorded)
     await callback.message.edit_text(

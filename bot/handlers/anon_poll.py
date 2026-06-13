@@ -18,6 +18,7 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
@@ -163,22 +164,31 @@ async def _notify_members(bot: Bot, group_id: int) -> None:
 # ── Forward member messages while a poll is active ─────────────────────────────
 
 @router.message(F.chat.type == "private", F.text, ~F.text.startswith("/"))
-async def forward_anon_message(message: Message, bot: Bot) -> None:
-    """Catch-all (registered last). Forwards plain text from non-admin members to active poll."""
+async def forward_anon_message(message: Message, bot: Bot, state: FSMContext) -> None:
+    """Catch-all (registered last). Forwards plain text from a recognised user
+    in private chat to the destination of their primaryGroup's active poll.
+
+    Skips:
+    - users mid-FSM (e.g. entering need text via /add_need or /record_needs) —
+      their text is form input, not an anonymous question
+    - messages whose destination equals the sender's chat (e.g. admin started
+      poll with destination = their own private chat)
+    """
+    current = await state.get_state()
+    if current is not None:
+        return
+
     username = message.from_user.username if message.from_user else None
     if not username:
         return
 
-    # Don't forward admin messages — they have their own menu.
-    admin = await find_admin_by_telegram(username)
-    if admin is not None:
+    user_obj = await find_admin_by_telegram(username)
+    if user_obj is None:
+        user_obj = await find_person_by_telegram(username)
+    if user_obj is None:
         return
 
-    person = await find_person_by_telegram(username)
-    if person is None:
-        return
-
-    group_id = person.get("primaryGroupId")
+    group_id = user_obj.get("primaryGroupId")
     if not group_id:
         return
 
@@ -192,7 +202,10 @@ async def forward_anon_message(message: Message, bot: Bot) -> None:
         return
 
     dest = poll.get("destinationChatId")
-    if not dest:
+    if dest is None:
+        return
+    if int(dest) == message.chat.id:
+        # Don't forward to oneself (admin started poll with destination=their private chat)
         return
 
     text = message.text or ""

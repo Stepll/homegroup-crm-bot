@@ -17,7 +17,7 @@ def member_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Рандомна потреба"), KeyboardButton(text="Подякувати за молитву")],
-            [KeyboardButton(text="Допомога")],
+            [KeyboardButton(text="Додати потребу")],
         ],
         resize_keyboard=True,
     )
