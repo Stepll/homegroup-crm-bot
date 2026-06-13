@@ -4,9 +4,9 @@ from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot.keyboards import private_main_keyboard
+from bot.keyboards import member_main_keyboard, private_main_keyboard
 from bot.schedulers.notifications import check_conflicts, notify_upcoming_events
-from bot.utils import find_admin_by_telegram
+from bot.utils import find_admin_by_telegram, find_person_by_telegram
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -30,6 +30,11 @@ PRIVATE_KNOWN_TEXT = (
     "Я одразу надішлю chat ID, який потрібно вставити в CRM (картка групи → Telegram Group ID)."
 )
 
+MEMBER_KNOWN_TEXT = (
+    "Привіт, {name}! Я тебе знаю — ти член домашки в HomeGroup CRM.\n\n"
+    "Обирай розділ у меню нижче."
+)
+
 PRIVATE_UNKNOWN_TEXT = (
     "Привіт! На жаль, ваш акаунт (@{username}) не знайдено в HomeGroup CRM.\n"
     "Зверніться до адміністратора системи."
@@ -48,15 +53,24 @@ async def _handle_private(message: Message) -> None:
         return
 
     admin = await find_admin_by_telegram(username)
-    if admin is None:
-        await message.answer(PRIVATE_UNKNOWN_TEXT.format(username=username))
+    if admin is not None:
+        name = admin.get("name") or "Адміне"
+        await message.answer(
+            PRIVATE_KNOWN_TEXT.format(name=name),
+            reply_markup=private_main_keyboard(),
+        )
         return
 
-    name = admin.get("name") or "Адміне"
-    await message.answer(
-        PRIVATE_KNOWN_TEXT.format(name=name),
-        reply_markup=private_main_keyboard(),
-    )
+    person = await find_person_by_telegram(username)
+    if person is not None:
+        name = person.get("name") or "Друже"
+        await message.answer(
+            MEMBER_KNOWN_TEXT.format(name=name),
+            reply_markup=member_main_keyboard(),
+        )
+        return
+
+    await message.answer(PRIVATE_UNKNOWN_TEXT.format(username=username))
 
 
 @router.message(Command("start"))

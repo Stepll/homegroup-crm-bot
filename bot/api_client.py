@@ -131,6 +131,25 @@ class ApiClient:
     async def create_need(self, group_id: int, payload: dict) -> dict:
         return await self._post(f"/api/v1/groups/{group_id}/needs", json=payload)
 
+    async def set_person_telegram_chat_id(self, person_id: int, chat_id: int) -> None:
+        await self._put(f"/api/v1/people/{person_id}/telegram-chat-id", json={"chatId": chat_id})
+
+    async def set_admin_telegram_chat_id(self, admin_id: int, chat_id: int) -> None:
+        await self._put(f"/api/v1/admins/{admin_id}/telegram-chat-id", json={"chatId": chat_id})
+
+    async def create_anon_poll(self, group_id: int, destination_chat_id: int) -> dict:
+        return await self._post(
+            "/api/v1/anon-polls",
+            json={"homeGroupId": group_id, "destinationChatId": destination_chat_id},
+        )
+
+    async def get_active_anon_poll(self, group_id: int) -> dict | None:
+        result = await self._get("/api/v1/anon-polls/active", params={"homeGroupId": group_id})
+        return result if result else None
+
+    async def close_anon_poll(self, poll_id: int) -> None:
+        await self._delete(f"/api/v1/anon-polls/{poll_id}")
+
     async def get_attendance(self, group_id: int, date: str) -> list:
         return await self._get("/api/v1/attendance", params={"groupId": group_id, "from": date, "to": date})
 

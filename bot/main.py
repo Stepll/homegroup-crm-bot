@@ -6,7 +6,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot.config import settings
-from bot.handlers import common, attendance, plans, group_events, stats, private, profile, home_group, members, home_group_events, private_plan, help_handler, notif, needs, record_needs
+from bot.handlers import common, attendance, plans, group_events, stats, private, profile, home_group, members, home_group_events, private_plan, help_handler, notif, needs, record_needs, member_thanks, anon_poll
+from bot.middlewares import TelegramChatIdMiddleware
 from bot.schedulers.notifications import setup_scheduler
 
 logging.basicConfig(
@@ -20,12 +21,15 @@ async def main() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())
 
+    dp.message.middleware(TelegramChatIdMiddleware())
+
     dp.include_router(common.router)
     dp.include_router(help_handler.router)
     dp.include_router(notif.router)
     dp.include_router(profile.router)
     dp.include_router(home_group.router)
     dp.include_router(needs.router)
+    dp.include_router(member_thanks.router)
     dp.include_router(members.router)
     dp.include_router(home_group_events.router)
     dp.include_router(private_plan.router)
@@ -35,6 +39,7 @@ async def main() -> None:
     dp.include_router(group_events.router)
     dp.include_router(stats.router)
     dp.include_router(record_needs.router)
+    dp.include_router(anon_poll.router)
 
     scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
     setup_scheduler(scheduler, bot)

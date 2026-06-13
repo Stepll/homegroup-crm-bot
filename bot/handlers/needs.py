@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
-from bot.utils import find_admin_by_telegram
+from bot.utils import find_admin_by_telegram, find_person_by_telegram
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -69,10 +69,25 @@ def _need_undo_kb(group_id: int, need_id: int) -> InlineKeyboardMarkup:
 
 @router.message(F.text == "Рандомна потреба")
 async def btn_random_need(message: Message) -> None:
-    result = await _get_admin_group(message)
-    if result is None:
+    username = message.from_user.username if message.from_user else None
+    if not username:
+        await message.answer("У вас не встановлений @username у Telegram.")
         return
-    _, group_id = result
+
+    admin = await find_admin_by_telegram(username)
+    is_admin = admin is not None
+    if is_admin:
+        group_id = admin.get("primaryGroupId")
+    else:
+        person = await find_person_by_telegram(username)
+        if person is None:
+            await message.answer("Ваш акаунт не знайдено в CRM.")
+            return
+        group_id = person.get("primaryGroupId")
+
+    if not group_id:
+        await message.answer("У вас не вказана основна група в CRM.")
+        return
 
     try:
         needs = await api_client.get_group_needs(group_id)
@@ -90,7 +105,7 @@ async def btn_random_need(message: Message) -> None:
     await message.answer(
         _need_text(need),
         parse_mode="HTML",
-        reply_markup=_need_kb(group_id, need["id"]),
+        reply_markup=_need_kb(group_id, need["id"]) if is_admin else None,
     )
 
 

@@ -13,4 +13,14 @@ def private_main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def member_main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Рандомна потреба"), KeyboardButton(text="Подякувати за молитву")],
+            [KeyboardButton(text="Допомога")],
+        ],
+        resize_keyboard=True,
+    )
+
+
 remove_keyboard = ReplyKeyboardRemove()
